@@ -65,6 +65,8 @@ function TurnstileBox({
   const widgetIdRef = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
   const onExpireRef = useRef(onExpire);
+  const [hasRendered, setHasRendered] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   useEffect(() => {
@@ -73,24 +75,63 @@ function TurnstileBox({
   }, [onExpire, onToken]);
 
   useEffect(() => {
-    const turnstile = window.turnstile;
+    if (!siteKey || !containerRef.current) return;
 
-    if (!siteKey || !isReady || !containerRef.current || !turnstile) return;
+    let cancelled = false;
+    let attempts = 0;
 
-    if (widgetIdRef.current && turnstile.remove) {
-      turnstile.remove(widgetIdRef.current);
+    function renderWidget() {
+      const turnstile = window.turnstile;
+
+      if (!containerRef.current || !turnstile) return false;
+
+      if (widgetIdRef.current && turnstile.remove) {
+        turnstile.remove(widgetIdRef.current);
+      }
+
+      containerRef.current.innerHTML = "";
+      widgetIdRef.current = turnstile.render(containerRef.current, {
+        sitekey: siteKey!,
+        callback: (token) => onTokenRef.current(token),
+        "expired-callback": () => onExpireRef.current(),
+        "error-callback": () => onExpireRef.current(),
+      });
+      setHasRendered(true);
+      setLoadFailed(false);
+      return true;
     }
 
-    containerRef.current.innerHTML = "";
-    widgetIdRef.current = turnstile.render(containerRef.current, {
-      sitekey: siteKey,
-      callback: (token) => onTokenRef.current(token),
-      "expired-callback": () => onExpireRef.current(),
-      "error-callback": () => onExpireRef.current(),
-    });
+    if (isReady && renderWidget()) {
+      return () => {
+        const turnstile = window.turnstile;
+
+        if (widgetIdRef.current && turnstile?.remove) {
+          turnstile.remove(widgetIdRef.current);
+        }
+      };
+    }
+
+    const interval = window.setInterval(() => {
+      attempts += 1;
+
+      if (cancelled || renderWidget()) {
+        window.clearInterval(interval);
+        return;
+      }
+
+      if (attempts >= 40) {
+        setLoadFailed(true);
+        window.clearInterval(interval);
+      }
+    }, 250);
 
     return () => {
-      if (widgetIdRef.current && turnstile.remove) {
+      cancelled = true;
+      window.clearInterval(interval);
+
+      const turnstile = window.turnstile;
+
+      if (widgetIdRef.current && turnstile?.remove) {
         turnstile.remove(widgetIdRef.current);
       }
     };
@@ -104,7 +145,20 @@ function TurnstileBox({
     );
   }
 
-  return <div ref={containerRef} className="min-h-[65px]" />;
+  return (
+    <div className="min-h-[65px]">
+      <div ref={containerRef} />
+      {!hasRendered && !loadFailed && (
+        <p className="text-sm text-neutral-400">Loading security check...</p>
+      )}
+      {loadFailed && (
+        <p className="rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          Security check could not load. Disable ad blockers for this site and
+          refresh the page.
+        </p>
+      )}
+    </div>
+  );
 }
 
 declare global {
@@ -863,6 +917,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
         src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
         strategy="afterInteractive"
         onLoad={() => setIsTurnstileReady(true)}
+        onReady={() => setIsTurnstileReady(true)}
       />
 
       <header className="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/[0.82] backdrop-blur-xl">
