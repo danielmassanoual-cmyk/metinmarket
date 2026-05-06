@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -99,7 +99,7 @@ function formatServerLabel(value: string | null | undefined) {
 }
 
 function formatEuro(value: number) {
-  return `${value.toFixed(2)}€`;
+  return `${value.toFixed(2)}â‚¬`;
 }
 
 function parseQuantity(value: string | number | null | undefined) {
@@ -303,7 +303,7 @@ export default function Admin() {
       description: item.description,
       server: item.server,
       type: item.type,
-      price: `${publicPrice}€`,
+      price: `${publicPrice}â‚¬`,
       seller_expected_price: item.seller_expected_price,
       profit: 0,
       image_url: item.image_url,
@@ -538,21 +538,23 @@ export default function Admin() {
   async function markInterestSold(request: InterestRequest) {
     if (!(await requireSession())) return;
 
-    const listingData = request.listings;
-    if (!listingData?.id) {
-      alert("This request no longer has a listing attached.");
-      return;
-    }
+    const sellerMatches = getInterestSellerMatches(request);
+    const listing = sellerMatches[0];
 
-    const listing = listings.find((item) => item.id === listingData.id);
     if (!listing) {
-      alert("Listing not found.");
+      alert("This request no longer has a listing attached.");
       return;
     }
 
     const quantityKey = `request-${request.id}-${listing.id}`;
     const requestedQuantity = parseQuantity(request.desired);
-    const availableQuantity = parseQuantity(listing.title);
+    const availableQuantity =
+      listing.type === "Wons"
+        ? sellerMatches.reduce(
+            (total, item) => total + parseQuantity(item.title),
+            0
+          )
+        : parseQuantity(listing.title);
     const soldQuantity =
       listing.type === "Wons"
         ? parseQuantity(matchQuantities[quantityKey] || request.desired)
@@ -581,61 +583,80 @@ export default function Admin() {
       !confirm(
         `Confirm sale of ${soldQuantity}${
           listing.type === "Wons" ? "W" : ""
-        } for this buyer request?`
+        } for this buyer request from ${sellerMatches.length} seller(s)?`
       )
     ) {
       return;
     }
 
-    const remainingQuantity =
-      listing.type === "Wons"
-        ? Math.max(availableQuantity - soldQuantity, 0)
-        : 0;
-    const profitPerUnit =
-      parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
-    const saleProfit = profitPerUnit * soldQuantity;
-    const nextProfit = getRecordedProfitForListing(listing.id) + saleProfit;
-    const listingUpdate =
-      listing.type === "Wons" && remainingQuantity > 0
-        ? {
-            title: String(remainingQuantity),
-            profit: nextProfit,
-            status: "Available",
-            is_active: true,
-          }
-        : {
-            title: listing.type === "Wons" ? "0" : listing.title,
-            profit: nextProfit,
-            status: "Sold",
-            is_active: false,
-          };
-
     setActionLoading(`request-sold-${request.id}`);
 
-    const { error: listingError } = await supabase
-      .from("listings")
-      .update(listingUpdate)
-      .eq("id", listing.id);
+    let remainingToSell = soldQuantity;
 
-    if (listingError) {
-      setActionLoading(null);
-      alert(listingError.message);
-      return;
-    }
+    for (const sellerListing of sellerMatches) {
+      if (remainingToSell <= 0) break;
 
-    try {
-      await recordSale({
-        listing,
-        sourceType: "buyer_request",
-        sourceId: request.id,
-        quantity: soldQuantity,
-        profit: saleProfit,
-        buyerContact: request.buyer_contact,
-      });
-    } catch (error) {
-      setActionLoading(null);
-      alert(error instanceof Error ? error.message : "Could not record sale.");
-      return;
+      const sellerQuantity =
+        sellerListing.type === "Wons" ? parseQuantity(sellerListing.title) : 1;
+      const quantityFromSeller =
+        sellerListing.type === "Wons"
+          ? Math.min(sellerQuantity, remainingToSell)
+          : 1;
+
+      if (!quantityFromSeller) continue;
+
+      const remainingQuantity =
+        sellerListing.type === "Wons"
+          ? Math.max(sellerQuantity - quantityFromSeller, 0)
+          : 0;
+      const profitPerUnit =
+        parseMoney(sellerListing.price) -
+        parseMoney(sellerListing.seller_expected_price);
+      const saleProfit = profitPerUnit * quantityFromSeller;
+      const nextProfit =
+        getRecordedProfitForListing(sellerListing.id) + saleProfit;
+      const listingUpdate =
+        sellerListing.type === "Wons" && remainingQuantity > 0
+          ? {
+              title: String(remainingQuantity),
+              profit: nextProfit,
+              status: "Available",
+              is_active: true,
+            }
+          : {
+              title: sellerListing.type === "Wons" ? "0" : sellerListing.title,
+              profit: nextProfit,
+              status: "Sold",
+              is_active: false,
+            };
+
+      const { error: listingError } = await supabase
+        .from("listings")
+        .update(listingUpdate)
+        .eq("id", sellerListing.id);
+
+      if (listingError) {
+        setActionLoading(null);
+        alert(listingError.message);
+        return;
+      }
+
+      try {
+        await recordSale({
+          listing: sellerListing,
+          sourceType: "buyer_request",
+          sourceId: request.id,
+          quantity: quantityFromSeller,
+          profit: saleProfit,
+          buyerContact: request.buyer_contact,
+        });
+      } catch (error) {
+        setActionLoading(null);
+        alert(error instanceof Error ? error.message : "Could not record sale.");
+        return;
+      }
+
+      remainingToSell -= quantityFromSeller;
     }
 
     const { error: requestError } = await supabase
@@ -950,6 +971,27 @@ export default function Admin() {
     });
   }
 
+  function getInterestSellerMatches(request: InterestRequest) {
+    const baseListing = listings.find((item) => item.id === request.listings?.id);
+
+    if (!baseListing) return [];
+
+    if (baseListing.type !== "Wons") {
+      return [baseListing];
+    }
+
+    const groupedMatches = activeListings.filter((listing) => {
+      return (
+        listing.type === "Wons" &&
+        listing.server === baseListing.server &&
+        listing.price === baseListing.price &&
+        parseQuantity(listing.title) > 0
+      );
+    });
+
+    return groupedMatches.length > 0 ? groupedMatches : [baseListing];
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.10),transparent_32rem),#050505] px-5 py-8 text-white">
       <div className="mx-auto max-w-7xl">
@@ -1165,8 +1207,8 @@ export default function Admin() {
                                   <div>
                                     <p className="font-bold">{listing.title}W</p>
                                     <p className="text-xs text-neutral-400">
-                                      Available: {availableQuantity}W · Sell:{" "}
-                                      {listing.price} · Buy:{" "}
+                                      Available: {availableQuantity}W Â· Sell:{" "}
+                                      {listing.price} Â· Buy:{" "}
                                       {listing.seller_expected_price || "-"}
                                     </p>
                                   </div>
@@ -1260,23 +1302,42 @@ export default function Admin() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               {pagedRequestMatches.map((req) => {
-                  const listing = listings.find(
-                    (item) => item.id === req.listings?.id
-                  );
+                  const sellerMatches = getInterestSellerMatches(req);
+                  const listing = sellerMatches[0];
                   if (!listing) return null;
 
                   const quantityKey = `request-${req.id}-${listing.id}`;
+                  const groupQuantity = sellerMatches.reduce(
+                    (total, item) => total + parseQuantity(item.title),
+                    0
+                  );
                   const selectedQuantity =
                     matchQuantities[quantityKey] ||
                     req.desired ||
-                    listing.title ||
+                    String(groupQuantity || parseQuantity(listing.title)) ||
                     "1";
                   const soldQuantity = parseQuantity(selectedQuantity);
-                  const availableQuantity = parseQuantity(listing.title);
-                  const profitPerUnit =
-                    parseMoney(listing.price) -
-                    parseMoney(listing.seller_expected_price);
-                  const requestProfit = profitPerUnit * soldQuantity;
+                  const availableQuantity =
+                    listing.type === "Wons"
+                      ? groupQuantity
+                      : parseQuantity(listing.title);
+                  let remainingEstimate = soldQuantity;
+                  const requestProfit = sellerMatches.reduce((total, item) => {
+                    if (remainingEstimate <= 0) return total;
+                    const sellerQuantity =
+                      item.type === "Wons" ? parseQuantity(item.title) : 1;
+                    const quantityFromSeller =
+                      item.type === "Wons"
+                        ? Math.min(sellerQuantity, remainingEstimate)
+                        : 1;
+                    remainingEstimate -= quantityFromSeller;
+                    return (
+                      total +
+                      (parseMoney(item.price) -
+                        parseMoney(item.seller_expected_price)) *
+                        quantityFromSeller
+                    );
+                  }, 0);
 
                   return (
                     <article
@@ -1292,14 +1353,18 @@ export default function Admin() {
                               Match found
                             </span>
                           </div>
-                          <h3 className="font-bold">{listing.title}</h3>
+                          <h3 className="font-bold">
+                            {listing.type === "Wons"
+                              ? `${availableQuantity}W grouped`
+                              : listing.title}
+                          </h3>
                           <p className="text-sm text-neutral-400">
-                            Sell: {listing.price} · Buy:{" "}
-                            {listing.seller_expected_price || "-"}
+                            Sell: {listing.price} · Sellers:{" "}
+                            {sellerMatches.length}
                           </p>
                           <p className="mt-1 text-sm text-neutral-400">
                             Desired: {req.desired || "-"}
-                            {req.max_price ? ` · Max: ${req.max_price}` : ""}
+                            {req.max_price ? ` Â· Max: ${req.max_price}` : ""}
                           </p>
                         </div>
 
@@ -1310,10 +1375,28 @@ export default function Admin() {
 
                       <div className="grid gap-3 md:grid-cols-2">
                         <ContactInfo label="Buyer contact" value={req.buyer_contact} />
-                        <ContactInfo
-                          label="Seller contact"
-                          value={listing.seller_contact}
-                        />
+                        <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs font-bold uppercase text-neutral-500">
+                            Seller contacts
+                          </p>
+                          <div className="mt-2 grid gap-2">
+                            {sellerMatches.map((seller, index) => (
+                              <div
+                                key={seller.id}
+                                className="rounded-lg bg-neutral-950 p-2 text-xs"
+                              >
+                                <p className="font-bold text-white">
+                                  Seller {index + 1}: {seller.title}
+                                  {seller.type === "Wons" ? "W" : ""}
+                                </p>
+                                <p className="text-neutral-400">
+                                  Buy: {seller.seller_expected_price || "-"} ·
+                                  Contact: {seller.seller_contact || "-"}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
 
                       {req.message && (
@@ -1400,7 +1483,7 @@ export default function Admin() {
                         {req.listings?.title || "Removed listing"}
                       </h3>
                       <p className="text-sm text-neutral-400">
-                          {formatServerLabel(req.listings?.server)} ·{" "}
+                          {formatServerLabel(req.listings?.server)} Â·{" "}
                         {req.listings?.price || "-"}
                       </p>
                     </div>
@@ -1507,7 +1590,7 @@ export default function Admin() {
                         className="w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 pr-10 outline-none"
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400">
-                        €
+                        â‚¬
                       </span>
                     </div>
 

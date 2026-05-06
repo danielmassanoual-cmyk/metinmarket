@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import Script from "next/script";
 import toast, { Toaster } from "react-hot-toast";
 import { supabase } from "../lib/supabase";
@@ -32,7 +33,7 @@ const itemCategories = [
   "Alquimia",
   "Pet",
   "Luva",
-  "Talismã",
+  "TalismÃ£",
   "Pulseira",
   "Brincos",
   "Colares",
@@ -40,10 +41,10 @@ const itemCategories = [
 ];
 const languageOptions: Record<Lang, { flagClass: string; label: string }> = {
   en: { flagClass: "flag-gb", label: "English" },
-  pt: { flagClass: "flag-pt", label: "Português" },
+  pt: { flagClass: "flag-pt", label: "PortuguÃªs" },
   de: { flagClass: "flag-de", label: "Deutsch" },
-  ro: { flagClass: "flag-ro", label: "Română" },
-  tr: { flagClass: "flag-tr", label: "Türkçe" },
+  ro: { flagClass: "flag-ro", label: "RomÃ¢nÄƒ" },
+  tr: { flagClass: "flag-tr", label: "TÃ¼rkÃ§e" },
 };
 const itemsPerPage = 12;
 const titleMaxLength = 25;
@@ -316,6 +317,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [lang, setLang] = useState<Lang>("en");
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
   const [view, setView] = useState<View>("market");
 
   const [listings, setListings] = useState<Listing[]>([]);
@@ -375,36 +377,36 @@ export default function Home() {
 
   const text = {
     pt: {
-      hero: "Compra e vende no Metin2 com mais segurança.",
-      sub: "Anúncios de contas, itens e wons com intermediação manual.",
+      hero: "Compra e vende no Metin2 com mais seguranÃ§a.",
+      sub: "AnÃºncios de contas, itens e wons com intermediaÃ§Ã£o manual.",
       market: "Mercado",
       sell: "Vender",
       buyOrder: "Buy",
-      search: "Pesquisar anúncio...",
+      search: "Pesquisar anÃºncio...",
       allServers: "Todos os servidores",
       chooseServer: "Escolhe o servidor",
       allTypes: "Todos os tipos",
       allItemCategories: "Todas as categorias",
       itemCategory: "Categoria",
-      found: "anúncio(s) encontrados",
+      found: "anÃºncio(s) encontrados",
       noImage: "Sem imagem",
-      price: "Preço",
-      available: "Disponível",
+      price: "PreÃ§o",
+      available: "DisponÃ­vel",
       interest: "Quero comprar",
       submitTitle: "Queres vender?",
       submitText:
-        "Submete o teu item, conta ou wons. O teu contacto e preço pretendido ficam privados e só são visíveis para o administrador.",
-      title: "Título",
+        "Submete o teu item, conta ou wons. O teu contacto e preÃ§o pretendido ficam privados e sÃ³ sÃ£o visÃ­veis para o administrador.",
+      title: "TÃ­tulo",
       quantity: "Quantidade",
-      sellerPrice: "Preço pretendido pelo vendedor",
-      sellerPricePerWon: "Preço por won",
+      sellerPrice: "PreÃ§o pretendido pelo vendedor",
+      sellerPricePerWon: "PreÃ§o por won",
       sellerContact: "Nome no Discord",
-      description: "Descrição",
-      imageRequired: "Imagem obrigatória para itens e contas",
+      description: "DescriÃ§Ã£o",
+      imageRequired: "Imagem obrigatÃ³ria para itens e contas",
       chooseImage: "Escolher imagem",
       noFileSelected: "Nenhuma imagem selecionada",
-      sendSale: "Enviar para aprovação",
-      backMarket: "← Voltar ao mercado",
+      sendSale: "Enviar para aprovaÃ§Ã£o",
+      backMarket: "â† Voltar ao mercado",
       buyerContact: "Nome no Discord",
       contactMethod: "Contacto",
       contactNotice:
@@ -418,16 +420,16 @@ export default function Home() {
       close: "Fechar",
       previous: "Anterior",
       next: "Seguinte",
-      fillRequired: "Preenche título, preço pretendido e contacto.",
-      imageMissing: "A imagem é obrigatória para itens e contas.",
-      saleSent: "Venda enviada para aprovação.",
+      fillRequired: "Preenche tÃ­tulo, preÃ§o pretendido e contacto.",
+      imageMissing: "A imagem Ã© obrigatÃ³ria para itens e contas.",
+      saleSent: "Venda enviada para aprovaÃ§Ã£o.",
       requestSent: "Pedido enviado.",
       contactMissing: "Preenche o teu contacto.",
       captcha: "Verificacao de seguranca",
       captchaMissing: "Completa a verificacao de seguranca.",
       captchaFailed: "A verificacao de seguranca falhou. Tenta novamente.",
       loading: "A carregar...",
-      noListingsTitle: "Sem anúncios disponíveis",
+      noListingsTitle: "Sem anÃºncios disponÃ­veis",
       noListingsText: "Tenta ajustar os filtros ou volta mais tarde.",
       buyOrderTitle: "Nao encontras o que queres?",
       buyOrderText:
@@ -440,6 +442,7 @@ export default function Home() {
       invalidPrice:
         "Para Wons usa 0.01 a 0.99. Para itens/contas usa ate 5 digitos.",
       invalidImage: "Usa uma imagem JPG, PNG ou WebP ate 4MB.",
+      howItWorks: "Como funciona",
     },
     en: {
       hero: "Buy and sell in Metin2 with more safety.",
@@ -471,7 +474,7 @@ export default function Home() {
       chooseImage: "Choose image",
       noFileSelected: "No image selected",
       sendSale: "Send for approval",
-      backMarket: "← Back to market",
+      backMarket: "â† Back to market",
       buyerContact: "Discord username",
       contactMethod: "Contact",
       contactNotice:
@@ -507,37 +510,38 @@ export default function Home() {
       invalidPrice:
         "For Wons use 0.01 to 0.99. For items/accounts use up to 5 digits.",
       invalidImage: "Use a JPG, PNG or WebP image up to 4MB.",
+      howItWorks: "How it works",
     },
     de: {
       hero: "Kaufe und verkaufe in Metin2 mit mehr Sicherheit.",
-      sub: "Anzeigen für Accounts, Items und Wons mit manueller Vermittlung.",
+      sub: "Anzeigen fÃ¼r Accounts, Items und Wons mit manueller Vermittlung.",
       market: "Markt",
       sell: "Verkaufen",
       search: "Anzeige suchen...",
       allServers: "Alle Server",
-      chooseServer: "Server auswählen",
+      chooseServer: "Server auswÃ¤hlen",
       allTypes: "Alle Typen",
       allItemCategories: "Alle Kategorien",
       itemCategory: "Kategorie",
       found: "Anzeige(n) gefunden",
       noImage: "Kein Bild",
       price: "Preis",
-      available: "Verfügbar",
-      interest: "Ich möchte kaufen",
-      submitTitle: "Möchtest du verkaufen?",
+      available: "VerfÃ¼gbar",
+      interest: "Ich mÃ¶chte kaufen",
+      submitTitle: "MÃ¶chtest du verkaufen?",
       submitText:
-        "Reiche dein Item, deinen Account oder Wons ein. Dein Kontakt und Wunschpreis bleiben privat und sind nur für den Admin sichtbar.",
+        "Reiche dein Item, deinen Account oder Wons ein. Dein Kontakt und Wunschpreis bleiben privat und sind nur fÃ¼r den Admin sichtbar.",
       title: "Titel",
       quantity: "Menge",
-      sellerPrice: "Gewünschter Verkäuferpreis",
+      sellerPrice: "GewÃ¼nschter VerkÃ¤uferpreis",
       sellerPricePerWon: "Preis pro Won",
       sellerContact: "Discord-Name",
       description: "Beschreibung",
-      imageRequired: "Bild erforderlich für Items und Accounts",
-      chooseImage: "Bild auswählen",
-      noFileSelected: "Kein Bild ausgewählt",
-      sendSale: "Zur Prüfung senden",
-      backMarket: "← Zurück zum Markt",
+      imageRequired: "Bild erforderlich fÃ¼r Items und Accounts",
+      chooseImage: "Bild auswÃ¤hlen",
+      noFileSelected: "Kein Bild ausgewÃ¤hlt",
+      sendSale: "Zur PrÃ¼fung senden",
+      backMarket: "â† ZurÃ¼ck zum Markt",
       buyerContact: "Discord-Name",
       contactMethod: "Kontakt",
       contactNotice:
@@ -548,54 +552,55 @@ export default function Home() {
       facebookHint: "Facebook: Name oder Profillink eingeben.",
       message: "Nachricht",
       sendRequest: "Anfrage senden",
-      close: "Schließen",
-      previous: "Zurück",
+      close: "SchlieÃŸen",
+      previous: "ZurÃ¼ck",
       next: "Weiter",
-      fillRequired: "Titel, Wunschpreis und Kontakt ausfüllen.",
-      imageMissing: "Bild ist für Items und Accounts erforderlich.",
-      saleSent: "Anzeige zur Prüfung gesendet.",
+      fillRequired: "Titel, Wunschpreis und Kontakt ausfÃ¼llen.",
+      imageMissing: "Bild ist fÃ¼r Items und Accounts erforderlich.",
+      saleSent: "Anzeige zur PrÃ¼fung gesendet.",
       requestSent: "Anfrage gesendet.",
-      contactMissing: "Kontakt ausfüllen.",
+      contactMissing: "Kontakt ausfÃ¼llen.",
       captcha: "Sicherheitspruefung",
       captchaMissing: "Schliesse die Sicherheitspruefung ab.",
       captchaFailed: "Sicherheitspruefung fehlgeschlagen. Bitte erneut versuchen.",
 loading: "Laden...",
-noListingsTitle: "Keine Anzeigen verfügbar",
-noListingsText: "Passe die Filter an oder schau später wieder vorbei.",
+noListingsTitle: "Keine Anzeigen verfÃ¼gbar",
+noListingsText: "Passe die Filter an oder schau spÃ¤ter wieder vorbei.",
 buyOrder: "Buy",
-invalidPrice: "Für Wons 0.01 bis 0.99 nutzen. Für Items/Accounts bis 5 Ziffern.",
+invalidPrice: "FÃ¼r Wons 0.01 bis 0.99 nutzen. FÃ¼r Items/Accounts bis 5 Ziffern.",
 invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
+howItWorks: "So funktioniert es",
     },
     ro: {
-      hero: "Cumpără și vinde în Metin2 mai sigur.",
-      sub: "Anunțuri pentru conturi, iteme și wons cu intermediere manuală.",
-      market: "Piață",
+      hero: "CumpÄƒrÄƒ È™i vinde Ã®n Metin2 mai sigur.",
+      sub: "AnunÈ›uri pentru conturi, iteme È™i wons cu intermediere manualÄƒ.",
+      market: "PiaÈ›Äƒ",
       sell: "Vinde",
-      search: "Caută anunț...",
+      search: "CautÄƒ anunÈ›...",
       allServers: "Toate serverele",
       chooseServer: "Alege serverul",
       allTypes: "Toate tipurile",
       allItemCategories: "Toate categoriile",
       itemCategory: "Categorie",
-      found: "anunț(uri) găsite",
-      noImage: "Fără imagine",
-      price: "Preț",
+      found: "anunÈ›(uri) gÄƒsite",
+      noImage: "FÄƒrÄƒ imagine",
+      price: "PreÈ›",
       available: "Disponibil",
-      interest: "Vreau să cumpăr",
-      submitTitle: "Vrei să vinzi?",
+      interest: "Vreau sÄƒ cumpÄƒr",
+      submitTitle: "Vrei sÄƒ vinzi?",
       submitText:
-        "Trimite itemul, contul sau wons. Contactul și prețul dorit rămân private și sunt vizibile doar administratorului.",
+        "Trimite itemul, contul sau wons. Contactul È™i preÈ›ul dorit rÄƒmÃ¢n private È™i sunt vizibile doar administratorului.",
       title: "Titlu",
       quantity: "Cantitate",
-      sellerPrice: "Preț dorit de vânzător",
-      sellerPricePerWon: "Preț per won",
+      sellerPrice: "PreÈ› dorit de vÃ¢nzÄƒtor",
+      sellerPricePerWon: "PreÈ› per won",
       sellerContact: "Nume Discord",
       description: "Descriere",
-      imageRequired: "Imagine obligatorie pentru iteme și conturi",
+      imageRequired: "Imagine obligatorie pentru iteme È™i conturi",
       chooseImage: "Alege imaginea",
-      noFileSelected: "Nicio imagine selectată",
+      noFileSelected: "Nicio imagine selectatÄƒ",
       sendSale: "Trimite spre aprobare",
-      backMarket: "← Înapoi la piață",
+      backMarket: "â† ÃŽnapoi la piaÈ›Äƒ",
       buyerContact: "Nume Discord",
       contactMethod: "Contact",
       contactNotice:
@@ -606,23 +611,24 @@ invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
       facebookHint: "Facebook: introdu numele sau linkul profilului.",
       message: "Mesaj",
       sendRequest: "Trimite cerere",
-      close: "Închide",
+      close: "ÃŽnchide",
       previous: "Anterior",
-      next: "Următor",
-      fillRequired: "Completează titlul, prețul dorit și contactul.",
-      imageMissing: "Imaginea este obligatorie pentru iteme și conturi.",
-      saleSent: "Vânzarea a fost trimisă spre aprobare.",
-      requestSent: "Cerere trimisă.",
-      contactMissing: "Completează contactul tău.",
+      next: "UrmÄƒtor",
+      fillRequired: "CompleteazÄƒ titlul, preÈ›ul dorit È™i contactul.",
+      imageMissing: "Imaginea este obligatorie pentru iteme È™i conturi.",
+      saleSent: "VÃ¢nzarea a fost trimisÄƒ spre aprobare.",
+      requestSent: "Cerere trimisÄƒ.",
+      contactMissing: "CompleteazÄƒ contactul tÄƒu.",
       captcha: "Verificare de securitate",
       captchaMissing: "Completeaza verificarea de securitate.",
       captchaFailed: "Verificarea de securitate a esuat. Incearca din nou.",
-loading: "Se încarcă...",
-noListingsTitle: "Nu există anunțuri disponibile",
-noListingsText: "Încearcă să ajustezi filtrele sau revino mai târziu.",
+loading: "Se Ã®ncarcÄƒ...",
+noListingsTitle: "Nu existÄƒ anunÈ›uri disponibile",
+noListingsText: "ÃŽncearcÄƒ sÄƒ ajustezi filtrele sau revino mai tÃ¢rziu.",
 buyOrder: "Buy",
 invalidPrice: "Pentru Wons foloseste 0.01-0.99. Pentru iteme/conturi maximum 5 cifre.",
-invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
+invalidImage: "FoloseÈ™te o imagine JPG, PNG sau WebP de maximum 4MB.",
+howItWorks: "Cum functioneaza",
     },
     tr: {
       hero: "Metin2'de daha guvenli alisveris yap.",
@@ -654,7 +660,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       chooseImage: "Gorsel sec",
       noFileSelected: "Gorsel secilmedi",
       sendSale: "Onaya gonder",
-      backMarket: "← Pazara don",
+      backMarket: "â† Pazara don",
       buyerContact: "Discord adi",
       contactMethod: "Iletisim",
       contactNotice:
@@ -691,6 +697,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       invalidPrice:
         "Wons icin 0.01-0.99 kullan. Item/hesap icin en fazla 5 rakam.",
       invalidImage: "4MB'a kadar JPG, PNG veya WebP gorsel kullan.",
+      howItWorks: "Nasil calisir",
     },
   }[lang];
 
@@ -729,7 +736,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       missing: "Fuellen Sie Wunsch, Kontakt und Maximalpreis aus.",
     },
     ro: {
-      nav: "Cumpără",
+      nav: "CumpÄƒrÄƒ",
       title: "Nu gasesti ce cauti?",
       intro:
         "Creeaza un buy. Cand se potriveste cu un anunt, adminul primeste o alerta.",
@@ -831,7 +838,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       Alquimia: "Alquimia",
       Pet: "Pet",
       Luva: "Luva",
-      "TalismÃ£": "TalismÃ£",
+      "TalismÃƒÂ£": "TalismÃƒÂ£",
       Pulseira: "Pulseira",
       Brincos: "Brincos",
       Colares: "Colares",
@@ -845,7 +852,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       Alquimia: "Alchemy",
       Pet: "Pet",
       Luva: "Glove",
-      "TalismÃ£": "Talisman",
+      "TalismÃƒÂ£": "Talisman",
       Pulseira: "Bracelet",
       Brincos: "Earrings",
       Colares: "Necklaces",
@@ -859,7 +866,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       Alquimia: "Alchemie",
       Pet: "Pet",
       Luva: "Handschuh",
-      "TalismÃ£": "Talisman",
+      "TalismÃƒÂ£": "Talisman",
       Pulseira: "Armband",
       Brincos: "Ohrringe",
       Colares: "Halsketten",
@@ -873,7 +880,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       Alquimia: "Alchimie",
       Pet: "Pet",
       Luva: "Manusa",
-      "TalismÃ£": "Talisman",
+      "TalismÃƒÂ£": "Talisman",
       Pulseira: "Bratara",
       Brincos: "Cercei",
       Colares: "Coliere",
@@ -887,7 +894,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       Alquimia: "Simya",
       Pet: "Pet",
       Luva: "Eldiven",
-      "TalismÃ£": "Tilsim",
+      "TalismÃƒÂ£": "Tilsim",
       Pulseira: "Bilezik",
       Brincos: "Kupeler",
       Colares: "Kolyeler",
@@ -1250,9 +1257,39 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
           onReady={() => setIsTurnstileReady(true)}
         />
       )}
+      <Script
+        id="tawk-init"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{
+          __html:
+            `
+              window.Tawk_API=window.Tawk_API||{};
+              window.Tawk_LoadStart=new Date();
+              window.Tawk_API.customStyle = {
+                visibility: {
+                  desktop: { position: 'br', xOffset: 20, yOffset: 20 },
+                  mobile: { position: 'br', xOffset: 12, yOffset: 12 }
+                }
+              };
+              if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+                var originalConsoleError = console.error.bind(console);
+                console.error = function () {
+                  if (arguments.length === 1 && arguments[0] === true) return;
+                  originalConsoleError.apply(console, arguments);
+                };
+              }
+            `,
+        }}
+      />
+      <Script
+        id="tawk-widget"
+        src="https://embed.tawk.to/69fb9abe42635a1c35b82389/1jnvd8u22"
+        strategy="afterInteractive"
+        crossOrigin="anonymous"
+      />
 
       <header className="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/[0.82] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-5 md:flex-row md:items-center md:justify-between">
+        <div className="mx-auto grid max-w-6xl gap-4 px-5 py-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
           <button
             type="button"
             onClick={() => {
@@ -1267,6 +1304,15 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
             <p className="text-sm text-emerald-200/70">Metin2 Marketplace</p>
           </button>
 
+          <div className="flex justify-start md:justify-center">
+            <Link
+              href="/how-it-works"
+              className="rounded-2xl border border-emerald-300/40 bg-emerald-300 px-8 py-3 text-base font-black text-black shadow-xl shadow-emerald-950/20 hover:-translate-y-0.5 hover:bg-emerald-200"
+            >
+              {text.howItWorks}
+            </Link>
+          </div>
+
           <div className="flex flex-wrap items-center gap-3 md:justify-end">
             <DiscordButton label="Asrold#3891" compact />
             <DiscordButton
@@ -1274,25 +1320,49 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
               href="https://discord.gg/VrUFhSNtuE"
               compact
             />
-            <div className="flex items-center gap-2">
-              {(["en", "pt", "de", "ro", "tr"] as Lang[]).map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setLang(l)}
-                  aria-label={languageOptions[l].label}
-                  title={languageOptions[l].label}
-                  className={`flex h-10 w-12 items-center justify-center rounded-lg border ${
-                    lang === l
-                      ? "border-white bg-white text-black shadow-lg shadow-white/10"
-                      : "border-white/10 bg-neutral-900/80 text-neutral-300 hover:border-white/25 hover:bg-neutral-800"
-                  }`}
-                >
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsLanguageMenuOpen((open) => !open)}
+                aria-label={languageOptions[lang].label}
+                title={languageOptions[lang].label}
+                className="flex h-10 w-[4.25rem] items-center justify-center gap-2 rounded-lg border border-white/10 bg-neutral-900/80 text-neutral-300 hover:border-white/25 hover:bg-neutral-800"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`language-flag ${languageOptions[lang].flagClass}`}
+                />
+                <span className="text-sm font-black leading-none text-emerald-300">
+                  ▾
+                </span>
+              </button>
+
+              {isLanguageMenuOpen && (
+                <div className="absolute right-0 top-12 z-50 grid gap-2 rounded-xl border border-white/10 bg-neutral-950 p-2 shadow-2xl shadow-black/40">
+                  {(["en", "pt", "de", "ro", "tr"] as Lang[]).map((l) => (
+                    <button
+                      key={l}
+                      type="button"
+                      onClick={() => {
+                        setLang(l);
+                        setIsLanguageMenuOpen(false);
+                      }}
+                      aria-label={languageOptions[l].label}
+                      title={languageOptions[l].label}
+                      className={`flex h-10 w-12 items-center justify-center rounded-lg border ${
+                        lang === l
+                          ? "border-white bg-white text-black shadow-lg shadow-white/10"
+                          : "border-white/10 bg-neutral-900/80 text-neutral-300 hover:border-white/25 hover:bg-neutral-800"
+                      }`}
+                    >
                   <span
                     aria-hidden="true"
                     className={`language-flag ${languageOptions[l].flagClass}`}
                   />
-                </button>
-              ))}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1696,7 +1766,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     />
 
                     <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-neutral-400">
-                      €
+                      â‚¬
                     </span>
                     <RequiredMark
                       show={
@@ -1913,7 +1983,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                       className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-14 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                     />
                     <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-neutral-400">
-                      €
+                      â‚¬
                     </span>
                     <RequiredMark
                       show={isIncompleteCentPrice(buyOrder.max_price)}
@@ -2003,7 +2073,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900 p-6 shadow-2xl shadow-black/50">
             <h3 className="text-xl font-bold">{selectedListing.title}</h3>
             <p className="mt-1 text-sm text-neutral-400">
-              {formatServerLabel(selectedListing.server)} · {selectedListing.price}
+              {formatServerLabel(selectedListing.server)} Â· {selectedListing.price}
             </p>
 
             {selectedListing.type === "Wons" && (
@@ -2120,7 +2190,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
 
       <footer className="mt-16 border-t border-white/10 bg-black/20 px-5 py-8">
         <div className="mx-auto flex max-w-6xl flex-col justify-between gap-3 text-sm text-neutral-500 md:flex-row">
-          <p>© Asrold Market — Metin2 Marketplace</p>
+          <p>Â© Asrold Market â€” Metin2 Marketplace</p>
           <p>Manual mediation to reduce scam risk.</p>
         </div>
       </footer>

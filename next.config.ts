@@ -11,12 +11,12 @@ const nextConfig: NextConfig = {
       "form-action 'self'",
       "frame-ancestors 'none'",
       "object-src 'none'",
-      "img-src 'self' data: blob: https://*.supabase.co",
-      `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://challenges.cloudflare.com`,
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
-      "frame-src https://challenges.cloudflare.com",
-      "style-src 'self' 'unsafe-inline'",
-      "font-src 'self' data:",
+      "img-src 'self' data: blob: https://*.supabase.co https://*.tawk.to https://*.tawk.link",
+      `connect-src 'self' https://${supabaseHost} wss://${supabaseHost} https://challenges.cloudflare.com https://*.tawk.to wss://*.tawk.to https://*.tawk.link`,
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://embed.tawk.to https://*.tawk.to",
+      "frame-src https://challenges.cloudflare.com https://*.tawk.to https://*.tawk.link",
+      "style-src 'self' 'unsafe-inline' https://*.tawk.to https://*.tawk.link",
+      "font-src 'self' data: https://*.tawk.to https://*.tawk.link",
       "upgrade-insecure-requests",
     ].join("; ");
 
