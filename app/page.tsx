@@ -718,37 +718,37 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
   }, [listings, server, type, query]);
 
   const displayListings = useMemo(() => {
-    const grouped = new Map<string, Listing>();
-    const visible: Listing[] = [];
+  const grouped = new Map<string, Listing>();
+  const visible: Listing[] = [];
 
-    filtered.forEach((item) => {
-      if (item.type !== "Wons") {
-        visible.push(item);
-        return;
-      }
+  filtered.forEach((item) => {
+    if (item.type !== "Wons") {
+      visible.push(item);
+      return;
+    }
 
-      const groupKey = `${item.server}|${item.price}`;
-      const current = grouped.get(groupKey);
+    const groupKey = `${item.server}|${item.price}`;
+    const current = grouped.get(groupKey);
 
-      if (!current) {
-        const next = { ...item, description: null };
-        grouped.set(groupKey, next);
-        visible.push(next);
-        return;
-      }
+    if (!current) {
+      const next = { ...item, description: null };
+      grouped.set(groupKey, next);
+      visible.push(next);
+      return;
+    }
 
-      current.title = String(parseQuantity(current.title) + parseQuantity(item.title));
-    });
+    current.title = String(Number(current.title) + Number(item.title));
+  });
 
-    return visible;
-  }, [filtered]);
+  return visible;
+}, [filtered]);
 
-  const totalPages = Math.ceil(displayListings.length / itemsPerPage);
+const totalPages = Math.ceil(displayListings.length / itemsPerPage);
 
-  const paginatedListings = displayListings.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+const paginatedListings = displayListings.slice(
+  (currentPage - 1) * itemsPerPage,
+  currentPage * itemsPerPage
+);
 
   function showMissingFields(fields: string[]) {
     toast.error(`${validationText.missingFields}: ${fields.join(", ")}.`);
