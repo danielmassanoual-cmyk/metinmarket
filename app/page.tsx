@@ -95,6 +95,10 @@ function normalizeServer(value: string) {
   return value.trim().toLowerCase().replace(/^(euw|tr)-/, "");
 }
 
+function formatServerLabel(value: string) {
+  return value.replace(/^EUW-/, "");
+}
+
 function TurnstileBox({
   isReady,
   onToken,
@@ -713,9 +717,35 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
     });
   }, [listings, server, type, query]);
 
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const displayListings = useMemo(() => {
+    const grouped = new Map<string, Listing>();
+    const visible: Listing[] = [];
 
-  const paginatedListings = filtered.slice(
+    filtered.forEach((item) => {
+      if (item.type !== "Wons") {
+        visible.push(item);
+        return;
+      }
+
+      const groupKey = `${item.server}|${item.price}`;
+      const current = grouped.get(groupKey);
+
+      if (!current) {
+        const next = { ...item, description: null };
+        grouped.set(groupKey, next);
+        visible.push(next);
+        return;
+      }
+
+      current.title = String(parseQuantity(current.title) + parseQuantity(item.title));
+    });
+
+    return visible;
+  }, [filtered]);
+
+  const totalPages = Math.ceil(displayListings.length / itemsPerPage);
+
+  const paginatedListings = displayListings.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
@@ -1097,7 +1127,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                 >
                   {servers.map((s) => (
                     <option key={s} value={s}>
-                      {s === "Todos" ? text.allServers : s}
+                      {s === "Todos" ? text.allServers : formatServerLabel(s)}
                     </option>
                   ))}
                 </select>
@@ -1172,7 +1202,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       )}
 
       <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/70 px-3 py-1 text-xs backdrop-blur">
-        {item.server}
+        {formatServerLabel(item.server)}
       </div>
 
       <div className="absolute right-3 top-3 rounded-full bg-white px-3 py-1 text-xs font-semibold text-black shadow-lg shadow-black/20">
@@ -1189,7 +1219,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
           {item.title}
         </p>
         <p className="mt-1 text-sm text-yellow-100/70">
-          {item.server}
+          {formatServerLabel(item.server)}
         </p>
       </div>
     </div>
@@ -1198,7 +1228,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
   <div className="flex flex-1 flex-col p-5">
     <div className="mb-3 flex flex-wrap gap-2">
       <span className="rounded-full border border-white/10 bg-neutral-800 px-3 py-1 text-xs text-neutral-300">
-        {item.server}
+        {formatServerLabel(item.server)}
       </span>
       <span className="rounded-full border border-white/10 bg-neutral-800 px-3 py-1 text-xs text-neutral-300">
         {typeLabels[item.type as keyof typeof typeLabels] || item.type}
@@ -1303,7 +1333,9 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     {servers
                       .filter((s) => s !== "Todos")
                       .map((s) => (
-                        <option key={s}>{s}</option>
+                        <option key={s} value={s}>
+                          {formatServerLabel(s)}
+                        </option>
                       ))}
                   </select>
 
@@ -1544,7 +1576,9 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     {servers
                       .filter((s) => s !== "Todos")
                       .map((s) => (
-                        <option key={s}>{s}</option>
+                        <option key={s} value={s}>
+                          {formatServerLabel(s)}
+                        </option>
                       ))}
                   </select>
 
@@ -1680,7 +1714,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900 p-6 shadow-2xl shadow-black/50">
             <h3 className="text-xl font-bold">{selectedListing.title}</h3>
             <p className="mt-1 text-sm text-neutral-400">
-              {selectedListing.server} · {selectedListing.price}
+              {formatServerLabel(selectedListing.server)} · {selectedListing.price}
             </p>
 
             {selectedListing.type === "Wons" && (

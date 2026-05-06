@@ -83,7 +83,7 @@ type ListingEditData = Partial<
   Pick<Listing, "title" | "description" | "server" | "type" | "price" | "status">
 >;
 
-function parseMoney(value: string | number | null | undefined) {
+  function parseMoney(value: string | number | null | undefined) {
   if (typeof value === "number") return value;
   if (!value) return 0;
 
@@ -91,6 +91,10 @@ function parseMoney(value: string | number | null | undefined) {
   const parsed = Number.parseFloat(normalized);
 
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatServerLabel(value: string | null | undefined) {
+  return (value || "-").replace(/^EUW-/, "");
 }
 
 function formatEuro(value: number) {
@@ -356,6 +360,16 @@ export default function Admin() {
     }
   }
 
+  function getRecordedProfitForListing(listingId: string, excludeSaleId?: string) {
+    return saleRecords.reduce((total, record) => {
+      if (record.listing_id !== listingId || record.id === excludeSaleId) {
+        return total;
+      }
+
+      return total + parseMoney(record.profit);
+    }, 0);
+  }
+
   async function markSold(id: string) {
     if (!(await requireSession())) return;
     const listing = listings.find((item) => item.id === id);
@@ -365,11 +379,12 @@ export default function Admin() {
     const profitPerUnit =
       parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
     const profit = profitPerUnit * quantity;
+    const nextProfit = getRecordedProfitForListing(listing.id) + profit;
 
     setActionLoading(`sold-${id}`);
     const { error } = await supabase
       .from("listings")
-      .update({ status: "Sold", is_active: false, profit })
+      .update({ status: "Sold", is_active: false, profit: nextProfit })
       .eq("id", id);
 
     if (error) {
@@ -432,7 +447,7 @@ export default function Admin() {
     const profitPerWon =
       parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
     const saleProfit = profitPerWon * soldQuantity;
-    const nextProfit = parseMoney(listing.profit) + saleProfit;
+    const nextProfit = getRecordedProfitForListing(listing.id) + saleProfit;
     const listingUpdate =
       remainingQuantity > 0
         ? {
@@ -576,7 +591,7 @@ export default function Admin() {
     const profitPerUnit =
       parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
     const saleProfit = profitPerUnit * soldQuantity;
-    const nextProfit = parseMoney(listing.profit) + saleProfit;
+    const nextProfit = getRecordedProfitForListing(listing.id) + saleProfit;
     const listingUpdate =
       listing.type === "Wons" && remainingQuantity > 0
         ? {
@@ -674,7 +689,10 @@ export default function Admin() {
       listing.type === "Wons"
         ? parseQuantity(listing.title) + record.quantity
         : parseQuantity(listing.title) || record.quantity;
-    const nextProfit = Math.max(parseMoney(listing.profit) - record.profit, 0);
+    const nextProfit = Math.max(
+      getRecordedProfitForListing(listing.id, record.id),
+      0
+    );
 
     setActionLoading(`remove-sale-${record.id}`);
     const { error: listingError } = await supabase
@@ -855,17 +873,14 @@ export default function Admin() {
 
   const activeListings = listings.filter((item) => item.is_active);
   const inactiveListings = listings.filter((item) => !item.is_active);
-  const soldListings = listings.filter(
-    (item) => item.status?.toLowerCase() === "sold"
+  const totalProfit = saleRecords.reduce(
+    (total, item) => total + parseMoney(item.profit),
+    0
   );
-  const totalProfit =
-    saleRecords.length > 0
-      ? saleRecords.reduce((total, item) => total + parseMoney(item.profit), 0)
-      : listings.reduce((total, item) => total + parseMoney(item.profit), 0);
   const activeBuyOrderMatches = buyOrders.reduce((total, order) => {
     return total + getBuyOrderMatches(order).length;
   }, 0);
-  const totalSales = saleRecords.length || soldListings.length;
+  const totalSales = saleRecords.length;
 
   function getBuyOrderMatches(order: BuyOrder) {
     const isOpen =
@@ -966,7 +981,7 @@ export default function Admin() {
                     <div>
                       <div className="mb-2 flex flex-wrap gap-2 text-xs">
                         <Badge>{sale.source_type}</Badge>
-                        <Badge>{sale.listing_server || "-"}</Badge>
+                        <Badge>{formatServerLabel(sale.listing_server)}</Badge>
                         <Badge>Qty {sale.quantity}</Badge>
                       </div>
                       <h3 className="font-bold">
@@ -1033,7 +1048,7 @@ export default function Admin() {
                     <div className="mb-3 flex items-start justify-between gap-4">
                       <div>
                         <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                          <Badge>{order.server}</Badge>
+                          <Badge>{formatServerLabel(order.server)}</Badge>
                           <Badge>{order.type}</Badge>
                           <Badge>{order.status || "Open"}</Badge>
                           {matches.length > 0 && (
@@ -1222,7 +1237,7 @@ export default function Admin() {
                       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                            <Badge>{listing.server}</Badge>
+                            <Badge>{formatServerLabel(listing.server)}</Badge>
                             <Badge>{listing.type}</Badge>
                             <span className="rounded-full bg-emerald-400 px-3 py-1 font-bold text-black">
                               Match found
@@ -1328,7 +1343,7 @@ export default function Admin() {
                         {req.listings?.title || "Removed listing"}
                       </h3>
                       <p className="text-sm text-neutral-400">
-                        {req.listings?.server || "-"} ·{" "}
+                          {formatServerLabel(req.listings?.server)} ·{" "}
                         {req.listings?.price || "-"}
                       </p>
                     </div>
@@ -1390,7 +1405,7 @@ export default function Admin() {
 
                   <div className="p-5">
                     <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                      <Badge>{item.server}</Badge>
+                      <Badge>{formatServerLabel(item.server)}</Badge>
                       <Badge>{item.type}</Badge>
                     </div>
 
@@ -1442,8 +1457,11 @@ export default function Admin() {
                       <strong className="text-emerald-200">
                         {publicPrices[item.id]
                           ? formatEuro(
-                              parseMoney(publicPrices[item.id]) -
-                                parseMoney(item.seller_expected_price)
+                              (parseMoney(publicPrices[item.id]) -
+                                parseMoney(item.seller_expected_price)) *
+                                (item.type === "Wons"
+                                  ? parseQuantity(item.title)
+                                  : 1)
                             )
                           : "-"}
                       </strong>
@@ -1508,7 +1526,7 @@ export default function Admin() {
 
                   <div>
                     <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                      <Badge>{item.server}</Badge>
+                      <Badge>{formatServerLabel(item.server)}</Badge>
                       <Badge>{item.type}</Badge>
                       <span
                         className={`rounded-full px-3 py-1 ${
@@ -1557,7 +1575,9 @@ export default function Admin() {
                             className="rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none"
                           >
                             {servers.map((s) => (
-                              <option key={s}>{s}</option>
+                              <option key={s} value={s}>
+                                {formatServerLabel(s)}
+                              </option>
                             ))}
                           </select>
 
