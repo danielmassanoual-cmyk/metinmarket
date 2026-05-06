@@ -23,9 +23,9 @@ const content = {
     steps: [
       "A seller submits an item, account or wons.",
       "The admin reviews the submission and publishes it.",
-      "A buyer clicks Buy or I want to buy.",
+      "A buyer clicks Buy or I want to buy and admin will message you.",
       "The admin confirms sold or cancelled.",
-      "Only confirmed sales count toward stock and profit.",
+      "Only confirmed sales count toward stock.",
     ],
     cards: [
       ["Market", "Browse approved listings. Wons with the same server and public price are grouped so the available amount is easy to read."],

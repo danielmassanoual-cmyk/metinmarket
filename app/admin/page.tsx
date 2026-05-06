@@ -99,7 +99,7 @@ function formatServerLabel(value: string | null | undefined) {
 }
 
 function formatEuro(value: number) {
-  return `${value.toFixed(2)}â‚¬`;
+  return `${value.toFixed(2)}€`;
 }
 
 function parseQuantity(value: string | number | null | undefined) {
@@ -303,7 +303,7 @@ export default function Admin() {
       description: item.description,
       server: item.server,
       type: item.type,
-      price: `${publicPrice}â‚¬`,
+      price: `${publicPrice}‚€`,
       seller_expected_price: item.seller_expected_price,
       profit: 0,
       image_url: item.image_url,
@@ -1590,7 +1590,7 @@ export default function Admin() {
                         className="w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 pr-10 outline-none"
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400">
-                        â‚¬
+                        €
                       </span>
                     </div>
 
