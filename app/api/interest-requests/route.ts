@@ -3,7 +3,6 @@ import {
   cleanMultiline,
   cleanText,
   formatContact,
-  isValidCentPrice,
   verifyTurnstile,
 } from "../../../lib/public-submit";
 
@@ -22,8 +21,7 @@ export async function POST(request: Request) {
   }
 
   const desired = cleanText(String(body.desired || ""), 6);
-  const server = cleanText(String(body.server || ""), 50);
-  const type = cleanText(String(body.type || "Wons"), 20);
+  const listingId = cleanText(String(body.listing_id || ""), 80);
   const maxPrice = cleanText(String(body.max_price || ""), 4);
   const buyerContactMethod = cleanText(
     String(body.buyer_contact_method || ""),
@@ -32,21 +30,13 @@ export async function POST(request: Request) {
   const buyerContact = cleanText(String(body.buyer_contact || ""), 50);
   const message = cleanMultiline(String(body.message || ""), 600);
 
-  if (!desired || !server || !type || !buyerContactMethod || !buyerContact) {
+  if (!listingId || !desired || !buyerContactMethod || !buyerContact) {
     return Response.json({ error: "Missing required fields." }, { status: 400 });
   }
 
-  if (maxPrice && !isValidCentPrice(maxPrice)) {
-    return Response.json(
-      { error: "Enter a value between 0.01 and 0.99. Example: 0.40." },
-      { status: 400 }
-    );
-  }
-
-  const { error } = await supabaseAdmin.from("buy_orders").insert({
+  const { error } = await supabaseAdmin.from("interest_requests").insert({
+    listing_id: listingId,
     desired,
-    server,
-    type,
     max_price: maxPrice ? `${maxPrice}€` : null,
     buyer_contact: formatContact(buyerContactMethod, buyerContact),
     message,

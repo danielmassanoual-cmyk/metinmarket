@@ -24,6 +24,20 @@ const allTypes = ["Todos", "Item", "Conta", "Wons"];
 const saleTypes = ["Item", "Conta", "Wons"];
 const buyOrderTypes = ["Wons"];
 const contactMethods = ["Discord", "Whatsapp", "Facebook"];
+const itemCategories = [
+  "Todos",
+  "Elmo",
+  "Armadura",
+  "Armas",
+  "Alquimia",
+  "Pet",
+  "Luva",
+  "Talismã",
+  "Pulseira",
+  "Brincos",
+  "Colares",
+  "Outro",
+];
 const languageOptions: Record<Lang, { flagClass: string; label: string }> = {
   en: { flagClass: "flag-gb", label: "English" },
   pt: { flagClass: "flag-pt", label: "Português" },
@@ -97,6 +111,77 @@ function normalizeServer(value: string) {
 
 function formatServerLabel(value: string) {
   return value.replace(/^EUW-/, "");
+}
+
+function parseQuantity(value: string | number | null | undefined) {
+  if (typeof value === "number") return value;
+  if (!value) return 0;
+
+  const parsed = Number.parseInt(String(value).replace(/[^\d]/g, ""), 10);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function ContactHint({
+  method,
+  text,
+}: {
+  method: string;
+  text: { discordHint: string; whatsappHint: string; facebookHint: string };
+}) {
+  const hint =
+    method === "Discord"
+      ? text.discordHint
+      : method === "Whatsapp"
+        ? text.whatsappHint
+        : text.facebookHint;
+
+  return <p className="text-xs font-medium text-neutral-500">{hint}</p>;
+}
+
+function RequiredMark({ show = true }: { show?: boolean }) {
+  return show ? (
+    <span className="pointer-events-none absolute right-3 top-2 text-sm font-black leading-none text-red-400">
+      *
+    </span>
+  ) : null;
+}
+
+function DiscordButton({
+  label,
+  href = "https://discord.com/channels/@me",
+  compact = false,
+}: {
+  label: string;
+  href?: string;
+  compact?: boolean;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={`relative inline-flex items-center gap-2 rounded-xl border border-[#5865F2]/35 bg-[#5865F2]/15 px-3 py-2 text-sm font-bold text-indigo-100 hover:border-[#5865F2]/70 hover:bg-[#5865F2]/25 ${
+        compact ? "" : "mt-3"
+      }`}
+      title={label}
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5 fill-current"
+      >
+        <path d="M19.54 5.34A16.9 16.9 0 0 0 15.32 4l-.2.4a11.7 11.7 0 0 1 3.72 1.86 12.7 12.7 0 0 0-11.7 0 11.7 11.7 0 0 1 3.72-1.86l-.2-.4a16.9 16.9 0 0 0-4.22 1.34C3.77 9.03 3.3 12.63 3.6 16.18A17 17 0 0 0 8.77 18.8l.62-.85a10.7 10.7 0 0 1-1.64-.78l.39-.3a12.1 12.1 0 0 0 7.72 0l.39.3c-.52.31-1.07.57-1.64.78l.62.85a17 17 0 0 0 5.17-2.62c.35-4.12-.6-7.68-2.86-10.84ZM9.43 14.04c-.8 0-1.46-.74-1.46-1.64s.64-1.64 1.46-1.64c.81 0 1.48.74 1.46 1.64 0 .9-.65 1.64-1.46 1.64Zm5.14 0c-.8 0-1.46-.74-1.46-1.64s.64-1.64 1.46-1.64c.82 0 1.48.74 1.46 1.64 0 .9-.64 1.64-1.46 1.64Z" />
+      </svg>
+      <span>{label}</span>
+    </a>
+  );
+}
+
+function contactPlaceholder(method: string) {
+  if (method === "Whatsapp") return "Whatsapp";
+  if (method === "Facebook") return "Facebook";
+  return "Discord ID";
 }
 
 function TurnstileBox({
@@ -236,6 +321,7 @@ export default function Home() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [server, setServer] = useState("Todos");
   const [type, setType] = useState("Todos");
+  const [itemCategory, setItemCategory] = useState("Todos");
   const [query, setQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -258,12 +344,18 @@ export default function Home() {
   const [saleCaptchaResetKey, setSaleCaptchaResetKey] = useState(0);
   const [buyCaptchaResetKey, setBuyCaptchaResetKey] = useState(0);
   const [interestCaptchaResetKey, setInterestCaptchaResetKey] = useState(0);
+  const [isLocalCaptchaBypassed] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+  );
 
   const [sale, setSale] = useState({
     title: "",
     description: "",
     server: "",
     type: "Item",
+    item_category: "",
     seller_expected_price: "",
     seller_contact_method: "Discord",
     seller_contact: "",
@@ -279,6 +371,8 @@ export default function Home() {
     message: "",
   });
 
+  const shouldShowCaptcha = isCaptchaEnabled && !isLocalCaptchaBypassed;
+
   const text = {
     pt: {
       hero: "Compra e vende no Metin2 com mais segurança.",
@@ -290,6 +384,8 @@ export default function Home() {
       allServers: "Todos os servidores",
       chooseServer: "Escolhe o servidor",
       allTypes: "Todos os tipos",
+      allItemCategories: "Todas as categorias",
+      itemCategory: "Categoria",
       found: "anúncio(s) encontrados",
       noImage: "Sem imagem",
       price: "Preço",
@@ -313,6 +409,10 @@ export default function Home() {
       contactMethod: "Contacto",
       contactNotice:
         "Os contactos fornecidos deverao ser Discord, Facebook ou WhatsApp.",
+      asroldDiscord: "Discord do admin: Asrold#3891",
+      discordHint: "Discord: coloca apenas o ID, sem #tag.",
+      whatsappHint: "WhatsApp: coloca o numero com indicativo.",
+      facebookHint: "Facebook: coloca o nome ou link do perfil.",
       message: "Mensagem",
       sendRequest: "Enviar pedido",
       close: "Fechar",
@@ -351,6 +451,8 @@ export default function Home() {
       allServers: "All servers",
       chooseServer: "Choose server",
       allTypes: "All types",
+      allItemCategories: "All categories",
+      itemCategory: "Category",
       found: "listing(s) found",
       noImage: "No image",
       price: "Price",
@@ -374,6 +476,10 @@ export default function Home() {
       contactMethod: "Contact",
       contactNotice:
         "Provided contacts must be Discord, Facebook or WhatsApp.",
+      asroldDiscord: "Admin Discord: Asrold#3891",
+      discordHint: "Discord: enter only the ID, without #tag.",
+      whatsappHint: "WhatsApp: enter the number with country code.",
+      facebookHint: "Facebook: enter the name or profile link.",
       message: "Message",
       sendRequest: "Send request",
       close: "Close",
@@ -411,6 +517,8 @@ export default function Home() {
       allServers: "Alle Server",
       chooseServer: "Server auswählen",
       allTypes: "Alle Typen",
+      allItemCategories: "Alle Kategorien",
+      itemCategory: "Kategorie",
       found: "Anzeige(n) gefunden",
       noImage: "Kein Bild",
       price: "Preis",
@@ -434,6 +542,10 @@ export default function Home() {
       contactMethod: "Kontakt",
       contactNotice:
         "Die angegebenen Kontakte muessen Discord, Facebook oder WhatsApp sein.",
+      asroldDiscord: "Admin Discord: Asrold#3891",
+      discordHint: "Discord: nur die ID eingeben, ohne #tag.",
+      whatsappHint: "WhatsApp: Nummer mit Landesvorwahl eingeben.",
+      facebookHint: "Facebook: Name oder Profillink eingeben.",
       message: "Nachricht",
       sendRequest: "Anfrage senden",
       close: "Schließen",
@@ -463,6 +575,8 @@ invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
       allServers: "Toate serverele",
       chooseServer: "Alege serverul",
       allTypes: "Toate tipurile",
+      allItemCategories: "Toate categoriile",
+      itemCategory: "Categorie",
       found: "anunț(uri) găsite",
       noImage: "Fără imagine",
       price: "Preț",
@@ -486,6 +600,10 @@ invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
       contactMethod: "Contact",
       contactNotice:
         "Contactele furnizate trebuie sa fie Discord, Facebook sau WhatsApp.",
+      asroldDiscord: "Discord admin: Asrold#3891",
+      discordHint: "Discord: introdu doar ID-ul, fara #tag.",
+      whatsappHint: "WhatsApp: introdu numarul cu prefix.",
+      facebookHint: "Facebook: introdu numele sau linkul profilului.",
       message: "Mesaj",
       sendRequest: "Trimite cerere",
       close: "Închide",
@@ -516,6 +634,8 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       allServers: "Tum sunucular",
       chooseServer: "Sunucu sec",
       allTypes: "Tum turler",
+      allItemCategories: "Tum kategoriler",
+      itemCategory: "Kategori",
       found: "ilan bulundu",
       noImage: "Gorsel yok",
       price: "Fiyat",
@@ -539,6 +659,10 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       contactMethod: "Iletisim",
       contactNotice:
         "Verilen iletisim bilgileri Discord, Facebook veya WhatsApp olmalidir.",
+      asroldDiscord: "Admin Discord: Asrold#3891",
+      discordHint: "Discord: sadece ID yaz, #tag kullanma.",
+      whatsappHint: "WhatsApp: ulke koduyla numara yaz.",
+      facebookHint: "Facebook: ad veya profil linki yaz.",
       message: "Mesaj",
       sendRequest: "Talep gonder",
       close: "Kapat",
@@ -698,66 +822,160 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
     },
   }[lang];
 
+  const categoryLabels: Record<string, string> = {
+    pt: {
+      Todos: text.allItemCategories,
+      Elmo: "Elmo",
+      Armadura: "Armadura",
+      Armas: "Armas",
+      Alquimia: "Alquimia",
+      Pet: "Pet",
+      Luva: "Luva",
+      "TalismÃ£": "TalismÃ£",
+      Pulseira: "Pulseira",
+      Brincos: "Brincos",
+      Colares: "Colares",
+      Outro: "Outro",
+    },
+    en: {
+      Todos: text.allItemCategories,
+      Elmo: "Helmet",
+      Armadura: "Armor",
+      Armas: "Weapons",
+      Alquimia: "Alchemy",
+      Pet: "Pet",
+      Luva: "Glove",
+      "TalismÃ£": "Talisman",
+      Pulseira: "Bracelet",
+      Brincos: "Earrings",
+      Colares: "Necklaces",
+      Outro: "Other",
+    },
+    de: {
+      Todos: text.allItemCategories,
+      Elmo: "Helm",
+      Armadura: "Ruestung",
+      Armas: "Waffen",
+      Alquimia: "Alchemie",
+      Pet: "Pet",
+      Luva: "Handschuh",
+      "TalismÃ£": "Talisman",
+      Pulseira: "Armband",
+      Brincos: "Ohrringe",
+      Colares: "Halsketten",
+      Outro: "Andere",
+    },
+    ro: {
+      Todos: text.allItemCategories,
+      Elmo: "Coif",
+      Armadura: "Armura",
+      Armas: "Arme",
+      Alquimia: "Alchimie",
+      Pet: "Pet",
+      Luva: "Manusa",
+      "TalismÃ£": "Talisman",
+      Pulseira: "Bratara",
+      Brincos: "Cercei",
+      Colares: "Coliere",
+      Outro: "Altul",
+    },
+    tr: {
+      Todos: text.allItemCategories,
+      Elmo: "Kask",
+      Armadura: "Zirh",
+      Armas: "Silahlar",
+      Alquimia: "Simya",
+      Pet: "Pet",
+      Luva: "Eldiven",
+      "TalismÃ£": "Tilsim",
+      Pulseira: "Bilezik",
+      Brincos: "Kupeler",
+      Colares: "Kolyeler",
+      Outro: "Diger",
+    },
+  }[lang];
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchListings();
   }, [fetchListings]);
 
   const filtered = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
     return listings.filter((item) => {
       const matchServer =
         server === "Todos" ||
         normalizeServer(item.server) === normalizeServer(server);
       const matchType = type === "Todos" || item.type === type;
-      const matchSearch = item.title
-        .toLowerCase()
-        .includes(query.toLowerCase());
+      const matchItemCategory =
+        itemCategory === "Todos" ||
+        item.type !== "Item" ||
+        item.title.toLowerCase().includes(itemCategory.toLowerCase());
+      const searchable = [
+        item.title,
+        item.description || "",
+        item.server,
+        formatServerLabel(item.server),
+        item.type,
+        item.price,
+      ]
+        .join(" ")
+        .toLowerCase();
+      const matchSearch =
+        normalizedQuery.length === 0 || searchable.includes(normalizedQuery);
 
-      return matchServer && matchType && matchSearch;
+      return matchServer && matchType && matchItemCategory && matchSearch;
     });
-  }, [listings, server, type, query]);
+  }, [listings, server, type, itemCategory, query]);
 
   const displayListings = useMemo(() => {
-  const grouped = new Map<string, Listing>();
-  const visible: Listing[] = [];
+    const grouped = new Map<string, Listing>();
+    const visible: Listing[] = [];
 
-  filtered.forEach((item) => {
-    if (item.type !== "Wons") {
-      visible.push(item);
-      return;
-    }
+    filtered.forEach((item) => {
+      if (item.type !== "Wons") {
+        visible.push(item);
+        return;
+      }
 
-    const groupKey = `${item.server}|${item.price}`;
-    const current = grouped.get(groupKey);
+      const groupKey = `${item.server}|${item.price}`;
+      const current = grouped.get(groupKey);
 
-    if (!current) {
-      const next = { ...item, description: null };
-      grouped.set(groupKey, next);
-      visible.push(next);
-      return;
-    }
+      if (!current) {
+        const next = { ...item, title: String(parseQuantity(item.title)), description: null };
+        grouped.set(groupKey, next);
+        visible.push(next);
+        return;
+      }
 
-    current.title = String(Number(current.title) + Number(item.title));
-  });
+      current.title = String(
+        parseQuantity(current.title) + parseQuantity(item.title)
+      );
+    });
 
-  return visible;
-}, [filtered]);
+    return visible;
+  }, [filtered]);
 
-const totalPages = Math.ceil(displayListings.length / itemsPerPage);
+  const totalPages = Math.ceil(displayListings.length / itemsPerPage);
 
-const paginatedListings = displayListings.slice(
-  (currentPage - 1) * itemsPerPage,
-  currentPage * itemsPerPage
-);
+  const paginatedListings = displayListings.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   function showMissingFields(fields: string[]) {
     toast.error(`${validationText.missingFields}: ${fields.join(", ")}.`);
   }
 
   async function submitSale() {
+    const rawSaleTitle =
+      sale.type === "Item" && sale.item_category
+        ? `${sale.item_category} - ${sale.title}`
+        : sale.title;
     const cleanedSale = {
       title: cleanText(
-        sale.title,
+        rawSaleTitle,
         sale.type === "Wons" ? quantityMaxLength : titleMaxLength
       ),
       description: cleanMultiline(sale.description, descriptionMaxLength),
@@ -771,6 +989,7 @@ const paginatedListings = displayListings.slice(
 
     const missingSaleFields = [
       !cleanedSale.server && text.chooseServer,
+      sale.type === "Item" && !sale.item_category && text.itemCategory,
       !cleanedSale.title && (sale.type === "Wons" ? text.quantity : text.title),
       (sale.type === "Wons"
         ? isIncompleteCentPrice(cleanedSale.seller_expected_price)
@@ -852,6 +1071,7 @@ const paginatedListings = displayListings.slice(
       description: "",
       server: "",
       type: "Item",
+      item_category: "",
       seller_expected_price: "",
       seller_contact_method: "Discord",
       seller_contact: "",
@@ -874,7 +1094,7 @@ const paginatedListings = displayListings.slice(
       isWonListing && !cleanedBuyerDesired && text.quantity,
       !buyerContactMethod && text.contactMethod,
       buyerContactMethod && !cleanedBuyerContact && text.buyerContact,
-      isCaptchaEnabled && !interestCaptchaToken && text.captcha,
+      shouldShowCaptcha && !interestCaptchaToken && text.captcha,
     ].filter(Boolean) as string[];
 
     if (!selectedListing || missingInterestFields.length > 0) {
@@ -892,6 +1112,8 @@ const paginatedListings = displayListings.slice(
         captcha: interestCaptchaToken,
         listing_id: selectedListing.id,
         desired: isWonListing ? cleanedBuyerDesired : selectedListing.title,
+        server: selectedListing.server,
+        type: selectedListing.type,
         buyer_contact_method: buyerContactMethod,
         buyer_contact: cleanedBuyerContact,
         message: cleanedBuyerMessage,
@@ -957,13 +1179,14 @@ const paginatedListings = displayListings.slice(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        captcha: buyCaptchaToken,
         desired: cleanedBuyOrder.desired,
         server: cleanedBuyOrder.server,
+        type: cleanedBuyOrder.type,
         max_price: cleanedBuyOrder.max_price,
         buyer_contact_method: buyOrder.buyer_contact_method,
         buyer_contact: cleanedBuyOrder.buyer_contact,
         message: cleanedBuyOrder.message,
+        captcha: buyCaptchaToken,
       }),
     });
 
@@ -1019,7 +1242,7 @@ const paginatedListings = displayListings.slice(
           },
         }}
       />
-      {isCaptchaEnabled && (
+      {shouldShowCaptcha && (
         <Script
           src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
           strategy="afterInteractive"
@@ -1045,6 +1268,12 @@ const paginatedListings = displayListings.slice(
           </button>
 
           <div className="flex flex-wrap items-center gap-3 md:justify-end">
+            <DiscordButton label="Asrold#3891" compact />
+            <DiscordButton
+              label="Join Discord server"
+              href="https://discord.gg/VrUFhSNtuE"
+              compact
+            />
             <div className="flex items-center gap-2">
               {(["en", "pt", "de", "ro", "tr"] as Lang[]).map((l) => (
                 <button
@@ -1106,7 +1335,7 @@ const paginatedListings = displayListings.slice(
 
           <section className="mx-auto max-w-6xl px-5">
             <div className="mb-6 rounded-2xl border border-white/10 bg-neutral-900/80 p-4 shadow-xl shadow-black/20 backdrop-blur">
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-4">
                 <input
                   placeholder={text.search}
                   value={query}
@@ -1136,6 +1365,9 @@ const paginatedListings = displayListings.slice(
                   value={type}
                   onChange={(e) => {
                     setType(e.target.value);
+                    if (e.target.value !== "Item") {
+                      setItemCategory("Todos");
+                    }
                     setCurrentPage(1);
                   }}
                   className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
@@ -1143,6 +1375,22 @@ const paginatedListings = displayListings.slice(
                   {allTypes.map((t) => (
                     <option key={t} value={t}>
                       {typeLabels[t as keyof typeof typeLabels]}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={itemCategory}
+                  onChange={(e) => {
+                    setItemCategory(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  disabled={type !== "Todos" && type !== "Item"}
+                  className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {itemCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {categoryLabels[category] || category}
                     </option>
                   ))}
                 </select>
@@ -1212,14 +1460,12 @@ const paginatedListings = displayListings.slice(
   ) : (
     <div className="p-5">
       <div className="rounded-2xl border border-yellow-500/25 bg-[radial-gradient(circle_at_top,rgba(250,204,21,0.22),rgba(234,179,8,0.08))] p-6 text-center shadow-inner shadow-yellow-900/20">
-        <p className="text-xs font-bold tracking-widest text-yellow-200">
-          WONS
-        </p>
-        <p className="mt-2 text-4xl font-black text-yellow-300">
-          {item.title}
-        </p>
-        <p className="mt-1 text-sm text-yellow-100/70">
+        <p className="text-lg font-black text-yellow-100">
           {formatServerLabel(item.server)}
+        </p>
+        <p className="mt-3 flex items-baseline justify-center gap-2 text-yellow-300">
+          <span className="text-5xl font-black leading-none">{item.title}</span>
+          <span className="text-3xl font-black leading-none">W</span>
         </p>
       </div>
     </div>
@@ -1240,14 +1486,8 @@ const paginatedListings = displayListings.slice(
     </span>
 
     <h2 className="mt-4 text-lg font-bold leading-snug">
-      {item.type === "Wons" ? "Wons Package" : item.title}
+      {item.type === "Wons" ? `${item.title} W` : item.title}
     </h2>
-
-    {item.description && (
-      <p className="mt-2 line-clamp-2 text-sm text-neutral-400">
-        {item.description}
-      </p>
-    )}
 
     <div className="mt-auto pt-5">
       <p className="text-xs text-neutral-500">{text.price}</p>
@@ -1320,24 +1560,27 @@ const paginatedListings = displayListings.slice(
             <div className="rounded-3xl border border-white/10 bg-neutral-900/85 p-6 shadow-xl shadow-black/20">
               <div className="grid gap-3">
                 <div className="grid gap-3 md:grid-cols-2">
-                  <select
-                    value={sale.server}
-                    onChange={(e) =>
-                      setSale({ ...sale, server: e.target.value })
-                    }
-                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                  >
-                    <option value="" disabled>
-                      {text.chooseServer}
-                    </option>
-                    {servers
-                      .filter((s) => s !== "Todos")
-                      .map((s) => (
-                        <option key={s} value={s}>
-                          {formatServerLabel(s)}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={sale.server}
+                      onChange={(e) =>
+                        setSale({ ...sale, server: e.target.value })
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    >
+                      <option value="" disabled>
+                        {text.chooseServer}
+                      </option>
+                      {servers
+                        .filter((s) => s !== "Todos")
+                        .map((s) => (
+                          <option key={s} value={s}>
+                            {formatServerLabel(s)}
+                          </option>
+                        ))}
+                    </select>
+                    <RequiredMark show={!sale.server} />
+                  </div>
 
                   <select
                     value={sale.type}
@@ -1346,6 +1589,7 @@ const paginatedListings = displayListings.slice(
                       setSale({
                         ...sale,
                         type: nextType,
+                        item_category: nextType === "Item" ? sale.item_category : "",
                         seller_expected_price: getInitialPriceForType(nextType),
                       });
                       setImageFile(null);
@@ -1363,6 +1607,30 @@ const paginatedListings = displayListings.slice(
                     ))}
                   </select>
                 </div>
+
+                {sale.type === "Item" && (
+                  <div className="relative">
+                    <select
+                      value={sale.item_category}
+                      onChange={(e) =>
+                        setSale({ ...sale, item_category: e.target.value })
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    >
+                      <option value="" disabled>
+                        {text.itemCategory}
+                      </option>
+                      {itemCategories
+                        .filter((category) => category !== "Todos")
+                        .map((category) => (
+                          <option key={category} value={category}>
+                            {categoryLabels[category] || category}
+                          </option>
+                        ))}
+                    </select>
+                    <RequiredMark show={!sale.item_category} />
+                  </div>
+                )}
 
                 <div className="relative">
                   <input
@@ -1396,6 +1664,7 @@ const paginatedListings = displayListings.slice(
                       W
                     </span>
                   )}
+                  <RequiredMark show={!sale.title.trim()} />
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -1423,12 +1692,19 @@ const paginatedListings = displayListings.slice(
                               : formatItemPriceInput(e.target.value),
                         })
                       }
-                      className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-10 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                      className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-14 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                     />
 
-                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400">
+                    <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-neutral-400">
                       €
                     </span>
+                    <RequiredMark
+                      show={
+                        sale.type === "Wons"
+                          ? isIncompleteCentPrice(sale.seller_expected_price)
+                          : !sale.seller_expected_price.trim()
+                      }
+                    />
                   </div>
 
                   <div className="grid gap-3 md:col-span-2 sm:grid-cols-[9rem_1fr]">
@@ -1449,15 +1725,26 @@ const paginatedListings = displayListings.slice(
                       ))}
                     </select>
 
-                    <input
-                      placeholder={text.sellerContact}
-                      maxLength={contactMaxLength}
-                      value={sale.seller_contact}
-                      onChange={(e) =>
-                        setSale({ ...sale, seller_contact: e.target.value })
-                      }
-                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                    />
+                    <div className="relative">
+                      <input
+                        placeholder={contactPlaceholder(
+                          sale.seller_contact_method
+                        )}
+                        maxLength={contactMaxLength}
+                        value={sale.seller_contact}
+                        onChange={(e) =>
+                          setSale({ ...sale, seller_contact: e.target.value })
+                        }
+                        className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                      />
+                      <RequiredMark show={!sale.seller_contact.trim()} />
+                    </div>
+                    <div className="sm:col-start-2">
+                      <ContactHint
+                        method={sale.seller_contact_method}
+                        text={text}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1503,21 +1790,8 @@ const paginatedListings = displayListings.slice(
                   </div>
                 )}
 
-                <textarea
-                  placeholder={text.description}
-                  maxLength={descriptionMaxLength}
-                  value={sale.description}
-                  onChange={(e) =>
-                    setSale({ ...sale, description: e.target.value })
-                  }
-                  className="min-h-28 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                />
-
-                {isCaptchaEnabled && (
-                  <div className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3">
-                    <p className="mb-3 text-sm font-semibold text-neutral-300">
-                      {text.captcha}
-                    </p>
+                {shouldShowCaptcha && (
+                  <div className="w-fit">
                     <TurnstileBox
                       isReady={isTurnstileReady}
                       resetKey={saleCaptchaResetKey}
@@ -1563,24 +1837,27 @@ const paginatedListings = displayListings.slice(
             <div className="rounded-3xl border border-white/10 bg-neutral-900/85 p-6 shadow-xl shadow-black/20">
               <div className="grid gap-3">
                 <div className="grid gap-3 md:grid-cols-2">
-                  <select
-                    value={buyOrder.server}
-                    onChange={(e) =>
-                      setBuyOrder({ ...buyOrder, server: e.target.value })
-                    }
-                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                  >
-                    <option value="" disabled>
-                      {text.chooseServer}
-                    </option>
-                    {servers
-                      .filter((s) => s !== "Todos")
-                      .map((s) => (
-                        <option key={s} value={s}>
-                          {formatServerLabel(s)}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={buyOrder.server}
+                      onChange={(e) =>
+                        setBuyOrder({ ...buyOrder, server: e.target.value })
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    >
+                      <option value="" disabled>
+                        {text.chooseServer}
+                      </option>
+                      {servers
+                        .filter((s) => s !== "Todos")
+                        .map((s) => (
+                          <option key={s} value={s}>
+                            {formatServerLabel(s)}
+                          </option>
+                        ))}
+                    </select>
+                    <RequiredMark show={!buyOrder.server} />
+                  </div>
 
                   <select
                     value={buyOrder.type}
@@ -1616,6 +1893,7 @@ const paginatedListings = displayListings.slice(
                   <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-bold text-yellow-300">
                     W
                   </span>
+                  <RequiredMark show={!buyOrder.desired.trim()} />
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -1632,11 +1910,14 @@ const paginatedListings = displayListings.slice(
                           max_price: formatCentPriceInput(e.target.value),
                         })
                       }
-                      className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-10 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                      className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-14 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                     />
-                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400">
+                    <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-neutral-400">
                       €
                     </span>
+                    <RequiredMark
+                      show={isIncompleteCentPrice(buyOrder.max_price)}
+                    />
                   </div>
 
                   <div className="grid gap-3 md:col-span-2 sm:grid-cols-[9rem_1fr]">
@@ -1657,18 +1938,29 @@ const paginatedListings = displayListings.slice(
                       ))}
                     </select>
 
-                    <input
-                      placeholder={text.buyerContact}
-                      maxLength={contactMaxLength}
-                      value={buyOrder.buyer_contact}
-                      onChange={(e) =>
-                        setBuyOrder({
-                          ...buyOrder,
-                          buyer_contact: e.target.value,
-                        })
-                      }
-                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                    />
+                    <div className="relative">
+                      <input
+                        placeholder={contactPlaceholder(
+                          buyOrder.buyer_contact_method
+                        )}
+                        maxLength={contactMaxLength}
+                        value={buyOrder.buyer_contact}
+                        onChange={(e) =>
+                          setBuyOrder({
+                            ...buyOrder,
+                            buyer_contact: e.target.value,
+                          })
+                        }
+                        className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                      />
+                      <RequiredMark show={!buyOrder.buyer_contact.trim()} />
+                    </div>
+                    <div className="sm:col-start-2">
+                      <ContactHint
+                        method={buyOrder.buyer_contact_method}
+                        text={text}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1682,11 +1974,8 @@ const paginatedListings = displayListings.slice(
                   className="min-h-28 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                 />
 
-                {isCaptchaEnabled && (
-                  <div className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3">
-                    <p className="mb-3 text-sm font-semibold text-neutral-300">
-                      {text.captcha}
-                    </p>
+                {shouldShowCaptcha && (
+                  <div className="w-fit">
                     <TurnstileBox
                       isReady={isTurnstileReady}
                       resetKey={buyCaptchaResetKey}
@@ -1752,13 +2041,19 @@ const paginatedListings = displayListings.slice(
                 ))}
               </select>
 
-              <input
-                placeholder={text.buyerContact}
-                maxLength={contactMaxLength}
-                value={buyerContact}
-                onChange={(e) => setBuyerContact(e.target.value)}
-                className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-              />
+              <div className="relative">
+                <input
+                  placeholder={contactPlaceholder(buyerContactMethod)}
+                  maxLength={contactMaxLength}
+                  value={buyerContact}
+                  onChange={(e) => setBuyerContact(e.target.value)}
+                  className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                />
+                <RequiredMark show={!buyerContact.trim()} />
+              </div>
+              <div className="sm:col-start-2">
+                <ContactHint method={buyerContactMethod} text={text} />
+              </div>
             </div>
 
             <textarea
@@ -1769,11 +2064,8 @@ const paginatedListings = displayListings.slice(
               className="mt-3 min-h-24 w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
             />
 
-            {isCaptchaEnabled && (
-              <div className="mt-3 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3">
-                <p className="mb-3 text-sm font-semibold text-neutral-300">
-                  {text.captcha}
-                </p>
+            {shouldShowCaptcha && (
+              <div className="mt-3 w-fit">
                 <TurnstileBox
                   isReady={isTurnstileReady}
                   resetKey={interestCaptchaResetKey}

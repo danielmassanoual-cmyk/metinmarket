@@ -8,6 +8,7 @@ import { supabase } from "../../lib/supabase";
 const servers = ["Iberia", "Tigerghost", "Ruby", "Azrael", "Teutonia"];
 const types = ["Item", "Conta", "Wons"];
 const allowedAdminEmail = "danielmassano.ual@gmail.com";
+const adminPageSize = 8;
 
 type SaleSubmission = {
   id: string;
@@ -174,6 +175,8 @@ export default function Admin() {
   const [editData, setEditData] = useState<ListingEditData>({});
   const [isFetching, setIsFetching] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [adminTab, setAdminTab] = useState("sales");
+  const [adminPage, setAdminPage] = useState(1);
   const isAllowedAdmin =
     session?.user.email?.toLowerCase() === allowedAdminEmail.toLowerCase();
 
@@ -881,6 +884,41 @@ export default function Admin() {
     return total + getBuyOrderMatches(order).length;
   }, 0);
   const totalSales = saleRecords.length;
+  const totalWonsSold = saleRecords.reduce((total, sale) => {
+    const listing = listings.find((item) => item.id === sale.listing_id);
+    return listing?.type === "Wons" ? total + Number(sale.quantity || 0) : total;
+  }, 0);
+  const openRequestMatches = requests.filter((req) => {
+    const status = req.status?.toLowerCase();
+    return status !== "sold" && status !== "cancelled" && req.listings?.id;
+  });
+  const pagedSaleRecords = getPageItems(saleRecords, adminPage);
+  const pagedBuyOrders = getPageItems(buyOrders, adminPage);
+  const pagedRequestMatches = getPageItems(openRequestMatches, adminPage);
+  const pagedRequests = getPageItems(requests, adminPage);
+  const pagedSubmissions = getPageItems(submissions, adminPage);
+  const pagedListings = getPageItems(listings, adminPage);
+  const currentAdminTotal =
+    adminTab === "sales"
+      ? saleRecords.length
+      : adminTab === "buy"
+        ? buyOrders.length
+        : adminTab === "matches"
+          ? openRequestMatches.length
+          : adminTab === "requests"
+            ? requests.length
+            : adminTab === "submissions"
+              ? submissions.length
+              : listings.length;
+  const currentAdminPages = Math.max(
+    1,
+    Math.ceil(currentAdminTotal / adminPageSize)
+  );
+
+  function openAdminTab(tab: string) {
+    setAdminTab(tab);
+    setAdminPage(1);
+  }
 
   function getBuyOrderMatches(order: BuyOrder) {
     const isOpen =
@@ -946,17 +984,18 @@ export default function Admin() {
           </div>
         </header>
 
-        <section className="mb-8 grid gap-4 md:grid-cols-3 xl:grid-cols-7">
-          <SummaryCard label="Pedidos recebidos" value={requests.length} />
-          <SummaryCard label="Buy orders" value={buyOrders.length} />
-          <SummaryCard label="Matches" value={activeBuyOrderMatches} />
-          <SummaryCard label="Pending submissions" value={submissions.length} />
-          <SummaryCard label="Total vendas" value={totalSales} />
-          <SummaryCard label="Lucro total" value={formatEuro(totalProfit)} />
-          <SummaryCard label="Active listings" value={activeListings.length} />
-          <SummaryCard label="Inactive listings" value={inactiveListings.length} />
+        <section className="mb-8 grid gap-4 md:grid-cols-3 xl:grid-cols-8">
+          <SummaryCard label="Vendas efetuadas" value={totalSales} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
+          <SummaryCard label="Lucro total" value={formatEuro(totalProfit)} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
+          <SummaryCard label="Wons vendidos" value={totalWonsSold} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
+          <SummaryCard label="Buy orders" value={buyOrders.length} active={adminTab === "buy"} onClick={() => openAdminTab("buy")} />
+          <SummaryCard label="Matches" value={activeBuyOrderMatches} active={adminTab === "matches"} onClick={() => openAdminTab("matches")} />
+          <SummaryCard label="Pedidos recebidos" value={requests.length} active={adminTab === "requests"} onClick={() => openAdminTab("requests")} />
+          <SummaryCard label="Pending submissions" value={submissions.length} active={adminTab === "submissions"} onClick={() => openAdminTab("submissions")} />
+          <SummaryCard label="Listings" value={activeListings.length + inactiveListings.length} active={adminTab === "listings"} onClick={() => openAdminTab("listings")} />
         </section>
 
+        {adminTab === "sales" && (
         <section className="mb-10">
           <SectionTitle
             title="Vendas efetuadas"
@@ -972,7 +1011,10 @@ export default function Admin() {
             />
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
-              {saleRecords.map((sale) => (
+              {pagedSaleRecords.map((sale) => {
+                const listing = listings.find((item) => item.id === sale.listing_id);
+
+                return (
                 <article
                   key={sale.id}
                   className="rounded-2xl border border-white/10 bg-neutral-900 p-5 transition hover:-translate-y-0.5 hover:border-white/20"
@@ -1002,6 +1044,14 @@ export default function Admin() {
                   {sale.buyer_contact && (
                     <ContactInfo label="Buyer contact" value={sale.buyer_contact} />
                   )}
+                  {listing?.seller_contact && (
+                    <div className="mt-3">
+                      <ContactInfo
+                        label="Seller contact"
+                        value={listing.seller_contact}
+                      />
+                    </div>
+                  )}
 
                   <button
                     onClick={() => removeSaleRecord(sale)}
@@ -1013,11 +1063,14 @@ export default function Admin() {
                       : "Remover venda"}
                   </button>
                 </article>
-              ))}
+              );
+              })}
             </div>
           )}
         </section>
+        )}
 
+        {adminTab === "buy" && (
         <section className="mb-10">
           <SectionTitle
             title="Buy orders"
@@ -1033,7 +1086,7 @@ export default function Admin() {
             />
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
-              {buyOrders.map((order) => {
+              {pagedBuyOrders.map((order) => {
                 const matches = getBuyOrderMatches(order);
 
                 return (
@@ -1121,6 +1174,12 @@ export default function Admin() {
                                     Profit: {formatEuro(matchProfit)}
                                   </strong>
                                 </div>
+                                <div className="mt-3">
+                                  <ContactInfo
+                                    label="Seller contact"
+                                    value={listing.seller_contact}
+                                  />
+                                </div>
 
                                 <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                                   <input
@@ -1184,33 +1243,23 @@ export default function Admin() {
             </div>
           )}
         </section>
+        )}
 
+        {adminTab === "matches" && (
         <section className="mb-10">
           <SectionTitle
             title="Buyer request matches"
             description="Requests from Quero comprar with sold/cancelled confirmation."
           />
 
-          {requests.filter((req) => {
-            const status = req.status?.toLowerCase();
-            return status !== "sold" && status !== "cancelled" && req.listings?.id;
-          }).length === 0 ? (
+          {openRequestMatches.length === 0 ? (
             <Empty
               title="No open buyer request matches"
               message="Open requests from Quero comprar will appear here."
             />
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
-              {requests
-                .filter((req) => {
-                  const status = req.status?.toLowerCase();
-                  return (
-                    status !== "sold" &&
-                    status !== "cancelled" &&
-                    req.listings?.id
-                  );
-                })
-                .map((req) => {
+              {pagedRequestMatches.map((req) => {
                   const listing = listings.find(
                     (item) => item.id === req.listings?.id
                   );
@@ -1259,7 +1308,13 @@ export default function Admin() {
                         </strong>
                       </div>
 
-                      <ContactInfo label="Buyer contact" value={req.buyer_contact} />
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <ContactInfo label="Buyer contact" value={req.buyer_contact} />
+                        <ContactInfo
+                          label="Seller contact"
+                          value={listing.seller_contact}
+                        />
+                      </div>
 
                       {req.message && (
                         <p className="mt-3 rounded-xl bg-neutral-950 p-3 text-sm">
@@ -1316,7 +1371,9 @@ export default function Admin() {
             </div>
           )}
         </section>
+        )}
 
+        {adminTab === "requests" && (
         <section className="mb-10">
           <SectionTitle
             title="Buyer requests"
@@ -1332,7 +1389,7 @@ export default function Admin() {
             />
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
-              {requests.map((req) => (
+              {pagedRequests.map((req) => (
                 <div
                   key={req.id}
                   className="rounded-2xl border border-white/10 bg-neutral-900 p-5 transition hover:-translate-y-0.5 hover:border-white/20"
@@ -1374,7 +1431,9 @@ export default function Admin() {
             </div>
           )}
         </section>
+        )}
 
+        {adminTab === "submissions" && (
         <section className="mb-10">
           <SectionTitle
             title="Pending submissions"
@@ -1390,7 +1449,7 @@ export default function Admin() {
             />
           ) : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {submissions.map((item) => (
+              {pagedSubmissions.map((item) => (
                 <article
                   key={item.id}
                   className="overflow-hidden rounded-2xl border border-white/10 bg-neutral-900 transition hover:-translate-y-0.5 hover:border-white/20"
@@ -1494,7 +1553,9 @@ export default function Admin() {
             </div>
           )}
         </section>
+        )}
 
+        {adminTab === "listings" && (
         <section>
           <SectionTitle
             title="Listings"
@@ -1510,7 +1571,7 @@ export default function Admin() {
             />
           ) : (
             <div className="grid gap-4">
-              {listings.map((item) => (
+              {pagedListings.map((item) => (
                 <article
                   key={item.id}
                   className="grid gap-4 rounded-2xl border border-white/10 bg-neutral-900 p-4 transition hover:-translate-y-0.5 hover:border-white/20 md:grid-cols-[170px_1fr_auto]"
@@ -1724,6 +1785,30 @@ export default function Admin() {
             </div>
           )}
         </section>
+        )}
+        {currentAdminPages > 1 && (
+          <div className="mt-8 flex items-center justify-center gap-3">
+            <button
+              onClick={() => setAdminPage((page) => Math.max(page - 1, 1))}
+              disabled={adminPage === 1}
+              className="rounded-xl border border-white/10 bg-neutral-900 px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-neutral-400">
+              {adminPage} / {currentAdminPages}
+            </span>
+            <button
+              onClick={() =>
+                setAdminPage((page) => Math.min(page + 1, currentAdminPages))
+              }
+              disabled={adminPage === currentAdminPages}
+              className="rounded-xl border border-white/10 bg-neutral-900 px-4 py-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
 
       {openedImage && (
@@ -1746,13 +1831,35 @@ export default function Admin() {
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: number | string }) {
+function SummaryCard({
+  label,
+  value,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  value: number | string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-neutral-900/90 p-5 shadow-xl shadow-black/15">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border p-5 text-left shadow-xl shadow-black/15 ${
+        active
+          ? "border-emerald-300/45 bg-emerald-400/10"
+          : "border-white/10 bg-neutral-900/90 hover:border-white/25"
+      }`}
+    >
       <p className="text-3xl font-black">{value}</p>
       <p className="text-sm text-neutral-400">{label}</p>
-    </div>
+    </button>
   );
+}
+
+function getPageItems<T>(items: T[], page: number) {
+  return items.slice((page - 1) * adminPageSize, page * adminPageSize);
 }
 
 function SectionTitle({
