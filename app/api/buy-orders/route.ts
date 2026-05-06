@@ -3,7 +3,7 @@ import {
   cleanMultiline,
   cleanText,
   formatContact,
-  isPositiveNumber,
+  isValidCentPrice,
   verifyTurnstile,
 } from "../../../lib/public-submit";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     string,
     unknown
   >;
-  const captcha = await verifyTurnstile(String(body.captcha || ""));
+  const captcha = await verifyTurnstile(String(body.captcha || ""), request);
 
   if (!captcha.ok) {
     return Response.json({ error: captcha.error }, { status: 403 });
@@ -30,8 +30,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing required fields." }, { status: 400 });
   }
 
-  if (!isPositiveNumber(maxPrice)) {
-    return Response.json({ error: "Invalid price." }, { status: 400 });
+  if (!isValidCentPrice(maxPrice)) {
+    return Response.json(
+      { error: "Enter a value between 0.01 and 0.99. Example: 0.40." },
+      { status: 400 }
+    );
   }
 
   const { error } = await supabaseAdmin.from("buy_orders").insert({

@@ -4,7 +4,7 @@ export async function POST(request: Request) {
   const { token } = (await request.json().catch(() => ({}))) as {
     token?: string;
   };
-  const result = await verifyTurnstile(token || "");
+  const result = await verifyTurnstile(token || "", request);
 
   if (!result.ok) {
     return Response.json({ error: result.error }, { status: 403 });

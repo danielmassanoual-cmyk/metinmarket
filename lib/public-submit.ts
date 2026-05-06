@@ -20,6 +20,14 @@ export function isPositiveNumber(value: string) {
   return Number.isFinite(parsed) && parsed > 0;
 }
 
+export function isValidCentPrice(value: string) {
+  return /^0\.\d{2}$/.test(value) && isPositiveNumber(value);
+}
+
+export function isValidItemPrice(value: string) {
+  return /^[1-9]\d{0,4}$/.test(value);
+}
+
 export function formatContact(method: string, contact: string) {
   return `${method}: ${contact}`;
 }
@@ -37,7 +45,25 @@ export function validateImage(file: File | null) {
   return null;
 }
 
-export async function verifyTurnstile(token: string) {
+export async function verifyTurnstile(token: string, request?: Request) {
+  const host = request?.headers.get("host") || "";
+  const forwardedHost = request?.headers.get("x-forwarded-host") || "";
+  const isLocalRequest = [host, forwardedHost].some(
+    (value) =>
+      value.startsWith("localhost") ||
+      value.startsWith("127.0.0.1") ||
+      value.startsWith("[::1]")
+  );
+
+  if (
+    process.env.NODE_ENV !== "production" ||
+    process.env.DISABLE_CAPTCHA === "true" ||
+    process.env.NEXT_PUBLIC_DISABLE_CAPTCHA === "true" ||
+    isLocalRequest
+  ) {
+    return { ok: true };
+  }
+
   const secret = process.env.TURNSTILE_SECRET_KEY;
 
   if (!secret) {
@@ -59,10 +85,18 @@ export async function verifyTurnstile(token: string) {
       body: formData,
     }
   );
-  const result = (await response.json()) as { success?: boolean };
+  const result = (await response.json()) as {
+    success?: boolean;
+    "error-codes"?: string[];
+  };
 
   if (!result.success) {
-    return { ok: false, error: "Captcha validation failed." };
+    return {
+      ok: false,
+      error: `Captcha validation failed: ${
+        result["error-codes"]?.join(", ") || "unknown"
+      }`,
+    };
   }
 
   return { ok: true };

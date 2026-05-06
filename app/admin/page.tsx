@@ -37,12 +37,21 @@ type Listing = {
 
 type InterestRequest = {
   id: string;
+  desired: string | null;
+  max_price: string | null;
   buyer_contact: string;
   message: string | null;
+  status: string | null;
   listings: {
+    id: string;
     title: string | null;
     server: string | null;
+    type: string | null;
     price: string | null;
+    seller_expected_price: string | null;
+    profit: number | null;
+    status: string | null;
+    is_active: boolean | null;
   } | null;
 };
 
@@ -55,6 +64,19 @@ type BuyOrder = {
   buyer_contact: string;
   message: string | null;
   status: string | null;
+};
+
+type SaleRecord = {
+  id: string;
+  listing_id: string;
+  source_type: string;
+  source_id: string | null;
+  quantity: number;
+  profit: number;
+  listing_title: string | null;
+  listing_server: string | null;
+  buyer_contact: string | null;
+  created_at: string | null;
 };
 
 type ListingEditData = Partial<
@@ -138,6 +160,7 @@ export default function Admin() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [requests, setRequests] = useState<InterestRequest[]>([]);
   const [buyOrders, setBuyOrders] = useState<BuyOrder[]>([]);
+  const [saleRecords, setSaleRecords] = useState<SaleRecord[]>([]);
   const [openedImage, setOpenedImage] = useState<string | null>(null);
   const [publicPrices, setPublicPrices] = useState<Record<string, string>>({});
   const [matchQuantities, setMatchQuantities] = useState<Record<string, string>>(
@@ -201,7 +224,9 @@ export default function Admin() {
 
     const { data: reqs } = await supabase
       .from("interest_requests")
-      .select(`*, listings (title, server, price)`)
+      .select(
+        `*, listings (id, title, server, type, price, seller_expected_price, profit, status, is_active)`
+      )
       .order("created_at", { ascending: false });
 
     const { data: orders } = await supabase
@@ -209,10 +234,16 @@ export default function Admin() {
       .select("*")
       .order("created_at", { ascending: false });
 
+    const { data: sales } = await supabase
+      .from("sale_records")
+      .select("*")
+      .order("created_at", { ascending: false });
+
     setSubmissions(subs || []);
     setListings(list || []);
     setRequests(reqs || []);
     setBuyOrders(orders || []);
+    setSaleRecords(sales || []);
     setIsFetching(false);
   }, [requireSession]);
 
@@ -246,6 +277,7 @@ export default function Admin() {
     setListings([]);
     setRequests([]);
     setBuyOrders([]);
+    setSaleRecords([]);
   }
 
   async function approve(item: SaleSubmission) {
@@ -293,18 +325,71 @@ export default function Admin() {
     fetchAll();
   }
 
+  async function recordSale({
+    listing,
+    sourceType,
+    sourceId,
+    quantity,
+    profit,
+    buyerContact,
+  }: {
+    listing: Listing;
+    sourceType: string;
+    sourceId?: string | null;
+    quantity: number;
+    profit: number;
+    buyerContact?: string | null;
+  }) {
+    const { error } = await supabase.from("sale_records").insert({
+      listing_id: listing.id,
+      source_type: sourceType,
+      source_id: sourceId || null,
+      quantity,
+      profit,
+      listing_title: listing.title,
+      listing_server: listing.server,
+      buyer_contact: buyerContact || null,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
   async function markSold(id: string) {
     if (!(await requireSession())) return;
     const listing = listings.find((item) => item.id === id);
-    const profit = listing
-      ? parseMoney(listing.price) - parseMoney(listing.seller_expected_price)
-      : 0;
+    if (!listing) return;
+
+    const quantity = listing.type === "Wons" ? parseQuantity(listing.title) : 1;
+    const profitPerUnit =
+      parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
+    const profit = profitPerUnit * quantity;
 
     setActionLoading(`sold-${id}`);
-    await supabase
+    const { error } = await supabase
       .from("listings")
       .update({ status: "Sold", is_active: false, profit })
       .eq("id", id);
+
+    if (error) {
+      setActionLoading(null);
+      alert(error.message);
+      return;
+    }
+
+    try {
+      await recordSale({
+        listing,
+        sourceType: "manual",
+        quantity,
+        profit,
+      });
+    } catch (error) {
+      setActionLoading(null);
+      alert(error instanceof Error ? error.message : "Could not record sale.");
+      return;
+    }
 
     setActionLoading(null);
     fetchAll();
@@ -376,6 +461,21 @@ export default function Admin() {
       return;
     }
 
+    try {
+      await recordSale({
+        listing,
+        sourceType: "buy_order",
+        sourceId: order.id,
+        quantity: soldQuantity,
+        profit: saleProfit,
+        buyerContact: order.buyer_contact,
+      });
+    } catch (error) {
+      setActionLoading(null);
+      alert(error instanceof Error ? error.message : "Could not record sale.");
+      return;
+    }
+
     const { error: orderError } = await supabase
       .from("buy_orders")
       .update({ status: "Sold" })
@@ -410,6 +510,197 @@ export default function Admin() {
     if (error) {
       setActionLoading(null);
       alert(error.message);
+      return;
+    }
+
+    setActionLoading(null);
+    fetchAll();
+  }
+
+  async function markInterestSold(request: InterestRequest) {
+    if (!(await requireSession())) return;
+
+    const listingData = request.listings;
+    if (!listingData?.id) {
+      alert("This request no longer has a listing attached.");
+      return;
+    }
+
+    const listing = listings.find((item) => item.id === listingData.id);
+    if (!listing) {
+      alert("Listing not found.");
+      return;
+    }
+
+    const quantityKey = `request-${request.id}-${listing.id}`;
+    const requestedQuantity = parseQuantity(request.desired);
+    const availableQuantity = parseQuantity(listing.title);
+    const soldQuantity =
+      listing.type === "Wons"
+        ? parseQuantity(matchQuantities[quantityKey] || request.desired)
+        : 1;
+
+    if (!soldQuantity || soldQuantity <= 0) {
+      alert("Please enter a valid quantity sold.");
+      return;
+    }
+
+    if (listing.type === "Wons" && soldQuantity > availableQuantity) {
+      alert("Sold quantity can not be higher than the listing quantity.");
+      return;
+    }
+
+    if (
+      listing.type === "Wons" &&
+      requestedQuantity > 0 &&
+      soldQuantity > requestedQuantity
+    ) {
+      alert("Sold quantity can not be higher than the buyer request quantity.");
+      return;
+    }
+
+    if (
+      !confirm(
+        `Confirm sale of ${soldQuantity}${
+          listing.type === "Wons" ? "W" : ""
+        } for this buyer request?`
+      )
+    ) {
+      return;
+    }
+
+    const remainingQuantity =
+      listing.type === "Wons"
+        ? Math.max(availableQuantity - soldQuantity, 0)
+        : 0;
+    const profitPerUnit =
+      parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
+    const saleProfit = profitPerUnit * soldQuantity;
+    const nextProfit = parseMoney(listing.profit) + saleProfit;
+    const listingUpdate =
+      listing.type === "Wons" && remainingQuantity > 0
+        ? {
+            title: String(remainingQuantity),
+            profit: nextProfit,
+            status: "Available",
+            is_active: true,
+          }
+        : {
+            title: listing.type === "Wons" ? "0" : listing.title,
+            profit: nextProfit,
+            status: "Sold",
+            is_active: false,
+          };
+
+    setActionLoading(`request-sold-${request.id}`);
+
+    const { error: listingError } = await supabase
+      .from("listings")
+      .update(listingUpdate)
+      .eq("id", listing.id);
+
+    if (listingError) {
+      setActionLoading(null);
+      alert(listingError.message);
+      return;
+    }
+
+    try {
+      await recordSale({
+        listing,
+        sourceType: "buyer_request",
+        sourceId: request.id,
+        quantity: soldQuantity,
+        profit: saleProfit,
+        buyerContact: request.buyer_contact,
+      });
+    } catch (error) {
+      setActionLoading(null);
+      alert(error instanceof Error ? error.message : "Could not record sale.");
+      return;
+    }
+
+    const { error: requestError } = await supabase
+      .from("interest_requests")
+      .update({ status: "Sold" })
+      .eq("id", request.id);
+
+    if (requestError) {
+      setActionLoading(null);
+      alert(requestError.message);
+      return;
+    }
+
+    setMatchQuantities((current) => {
+      const next = { ...current };
+      delete next[quantityKey];
+      return next;
+    });
+    setActionLoading(null);
+    fetchAll();
+  }
+
+  async function cancelInterestRequest(id: string) {
+    if (!(await requireSession())) return;
+    if (!confirm("Cancel this buyer request?")) return;
+
+    setActionLoading(`request-cancel-${id}`);
+    const { error } = await supabase
+      .from("interest_requests")
+      .update({ status: "Cancelled" })
+      .eq("id", id);
+
+    if (error) {
+      setActionLoading(null);
+      alert(error.message);
+      return;
+    }
+
+    setActionLoading(null);
+    fetchAll();
+  }
+
+  async function removeSaleRecord(record: SaleRecord) {
+    if (!(await requireSession())) return;
+    if (!confirm("Remove this sale and reverse its profit/quantity?")) return;
+
+    const listing = listings.find((item) => item.id === record.listing_id);
+    if (!listing) {
+      alert("Listing not found. Can not reverse this sale safely.");
+      return;
+    }
+
+    const restoredQuantity =
+      listing.type === "Wons"
+        ? parseQuantity(listing.title) + record.quantity
+        : parseQuantity(listing.title) || record.quantity;
+    const nextProfit = Math.max(parseMoney(listing.profit) - record.profit, 0);
+
+    setActionLoading(`remove-sale-${record.id}`);
+    const { error: listingError } = await supabase
+      .from("listings")
+      .update({
+        title: listing.type === "Wons" ? String(restoredQuantity) : listing.title,
+        profit: nextProfit,
+        status: "Available",
+        is_active: true,
+      })
+      .eq("id", listing.id);
+
+    if (listingError) {
+      setActionLoading(null);
+      alert(listingError.message);
+      return;
+    }
+
+    const { error: saleError } = await supabase
+      .from("sale_records")
+      .delete()
+      .eq("id", record.id);
+
+    if (saleError) {
+      setActionLoading(null);
+      alert(saleError.message);
       return;
     }
 
@@ -567,13 +858,14 @@ export default function Admin() {
   const soldListings = listings.filter(
     (item) => item.status?.toLowerCase() === "sold"
   );
-  const totalProfit = listings.reduce(
-    (total, item) => total + parseMoney(item.profit),
-    0
-  );
+  const totalProfit =
+    saleRecords.length > 0
+      ? saleRecords.reduce((total, item) => total + parseMoney(item.profit), 0)
+      : listings.reduce((total, item) => total + parseMoney(item.profit), 0);
   const activeBuyOrderMatches = buyOrders.reduce((total, order) => {
     return total + getBuyOrderMatches(order).length;
   }, 0);
+  const totalSales = saleRecords.length || soldListings.length;
 
   function getBuyOrderMatches(order: BuyOrder) {
     const isOpen =
@@ -644,10 +936,71 @@ export default function Admin() {
           <SummaryCard label="Buy orders" value={buyOrders.length} />
           <SummaryCard label="Matches" value={activeBuyOrderMatches} />
           <SummaryCard label="Pending submissions" value={submissions.length} />
-          <SummaryCard label="Total vendas" value={soldListings.length} />
+          <SummaryCard label="Total vendas" value={totalSales} />
           <SummaryCard label="Lucro total" value={formatEuro(totalProfit)} />
           <SummaryCard label="Active listings" value={activeListings.length} />
           <SummaryCard label="Inactive listings" value={inactiveListings.length} />
+        </section>
+
+        <section className="mb-10">
+          <SectionTitle
+            title="Vendas efetuadas"
+            description="Confirmed sales. Removing one reverses its quantity and profit."
+          />
+
+          {isFetching && saleRecords.length === 0 ? (
+            <LoadingGrid />
+          ) : saleRecords.length === 0 ? (
+            <Empty
+              title="No sales recorded"
+              message="Confirmed buy order and buyer request sales will appear here."
+            />
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {saleRecords.map((sale) => (
+                <article
+                  key={sale.id}
+                  className="rounded-2xl border border-white/10 bg-neutral-900 p-5 transition hover:-translate-y-0.5 hover:border-white/20"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-4">
+                    <div>
+                      <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                        <Badge>{sale.source_type}</Badge>
+                        <Badge>{sale.listing_server || "-"}</Badge>
+                        <Badge>Qty {sale.quantity}</Badge>
+                      </div>
+                      <h3 className="font-bold">
+                        {sale.listing_title || "Removed listing"}
+                      </h3>
+                      <p className="text-sm text-neutral-400">
+                        {sale.created_at
+                          ? new Date(sale.created_at).toLocaleString()
+                          : "-"}
+                      </p>
+                    </div>
+
+                    <strong className="text-emerald-200">
+                      {formatEuro(parseMoney(sale.profit))}
+                    </strong>
+                  </div>
+
+                  {sale.buyer_contact && (
+                    <ContactInfo label="Buyer contact" value={sale.buyer_contact} />
+                  )}
+
+                  <button
+                    onClick={() => removeSaleRecord(sale)}
+                    disabled={actionLoading === `remove-sale-${sale.id}`}
+                    className="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {actionLoading === `remove-sale-${sale.id}`
+                      ? "Removing..."
+                      : "Remover venda"}
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="mb-10">
@@ -813,6 +1166,138 @@ export default function Admin() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </section>
+
+        <section className="mb-10">
+          <SectionTitle
+            title="Buyer request matches"
+            description="Requests from Quero comprar with sold/cancelled confirmation."
+          />
+
+          {requests.filter((req) => {
+            const status = req.status?.toLowerCase();
+            return status !== "sold" && status !== "cancelled" && req.listings?.id;
+          }).length === 0 ? (
+            <Empty
+              title="No open buyer request matches"
+              message="Open requests from Quero comprar will appear here."
+            />
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {requests
+                .filter((req) => {
+                  const status = req.status?.toLowerCase();
+                  return (
+                    status !== "sold" &&
+                    status !== "cancelled" &&
+                    req.listings?.id
+                  );
+                })
+                .map((req) => {
+                  const listing = listings.find(
+                    (item) => item.id === req.listings?.id
+                  );
+                  if (!listing) return null;
+
+                  const quantityKey = `request-${req.id}-${listing.id}`;
+                  const selectedQuantity =
+                    matchQuantities[quantityKey] ||
+                    req.desired ||
+                    listing.title ||
+                    "1";
+                  const soldQuantity = parseQuantity(selectedQuantity);
+                  const availableQuantity = parseQuantity(listing.title);
+                  const profitPerUnit =
+                    parseMoney(listing.price) -
+                    parseMoney(listing.seller_expected_price);
+                  const requestProfit = profitPerUnit * soldQuantity;
+
+                  return (
+                    <article
+                      key={req.id}
+                      className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 p-5 transition hover:-translate-y-0.5"
+                    >
+                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                            <Badge>{listing.server}</Badge>
+                            <Badge>{listing.type}</Badge>
+                            <span className="rounded-full bg-emerald-400 px-3 py-1 font-bold text-black">
+                              Match found
+                            </span>
+                          </div>
+                          <h3 className="font-bold">{listing.title}</h3>
+                          <p className="text-sm text-neutral-400">
+                            Sell: {listing.price} · Buy:{" "}
+                            {listing.seller_expected_price || "-"}
+                          </p>
+                          <p className="mt-1 text-sm text-neutral-400">
+                            Desired: {req.desired || "-"}
+                            {req.max_price ? ` · Max: ${req.max_price}` : ""}
+                          </p>
+                        </div>
+
+                        <strong className="text-emerald-200">
+                          Profit: {formatEuro(requestProfit)}
+                        </strong>
+                      </div>
+
+                      <ContactInfo label="Buyer contact" value={req.buyer_contact} />
+
+                      {req.message && (
+                        <p className="mt-3 rounded-xl bg-neutral-950 p-3 text-sm">
+                          <span className="text-neutral-400">Message:</span>{" "}
+                          {req.message}
+                        </p>
+                      )}
+
+                      <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                        <input
+                          type="number"
+                          min="1"
+                          max={
+                            listing.type === "Wons"
+                              ? Math.min(
+                                  availableQuantity,
+                                  parseQuantity(req.desired)
+                                )
+                              : 1
+                          }
+                          value={selectedQuantity}
+                          onChange={(e) =>
+                            setMatchQuantities({
+                              ...matchQuantities,
+                              [quantityKey]: e.target.value,
+                            })
+                          }
+                          className="rounded-lg border border-white/10 bg-black px-3 py-2 outline-none focus:border-emerald-300/60"
+                        />
+
+                        <button
+                          onClick={() => markInterestSold(req)}
+                          disabled={actionLoading === `request-sold-${req.id}`}
+                          className="rounded-lg bg-green-500 px-3 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {actionLoading === `request-sold-${req.id}`
+                            ? "Saving..."
+                            : "Vendido"}
+                        </button>
+
+                        <button
+                          onClick={() => cancelInterestRequest(req.id)}
+                          disabled={actionLoading === `request-cancel-${req.id}`}
+                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {actionLoading === `request-cancel-${req.id}`
+                            ? "Saving..."
+                            : "Cancelado"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
             </div>
           )}
         </section>

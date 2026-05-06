@@ -24,14 +24,25 @@ const allTypes = ["Todos", "Item", "Conta", "Wons"];
 const saleTypes = ["Item", "Conta", "Wons"];
 const buyOrderTypes = ["Wons"];
 const contactMethods = ["Discord", "Whatsapp", "Facebook"];
+const languageOptions: Record<Lang, { flagClass: string; label: string }> = {
+  en: { flagClass: "flag-gb", label: "English" },
+  pt: { flagClass: "flag-pt", label: "Português" },
+  de: { flagClass: "flag-de", label: "Deutsch" },
+  ro: { flagClass: "flag-ro", label: "Română" },
+  tr: { flagClass: "flag-tr", label: "Türkçe" },
+};
 const itemsPerPage = 12;
 const titleMaxLength = 25;
 const quantityMaxLength = 6;
 const priceMaxLength = 4;
+const itemPriceMaxLength = 5;
 const contactMaxLength = 50;
 const descriptionMaxLength = 200;
 const maxImageSizeBytes = 4 * 1024 * 1024;
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
+const isCaptchaEnabled =
+  process.env.NODE_ENV === "production" &&
+  process.env.NEXT_PUBLIC_DISABLE_CAPTCHA !== "true";
 
 function cleanText(value: string, maxLength: number) {
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -44,6 +55,40 @@ function cleanMultiline(value: string, maxLength: number) {
 function isPositiveNumber(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0;
+}
+
+function isValidCentPrice(value: string) {
+  return /^0\.\d{2}$/.test(value) && isPositiveNumber(value);
+}
+
+function isValidItemPrice(value: string) {
+  return /^[1-9]\d{0,4}$/.test(value);
+}
+
+function isIncompleteCentPrice(value: string) {
+  return value === "0." || value === "";
+}
+
+function formatCentPriceInput(value: string) {
+  const normalized = value.replace(",", ".");
+
+  if (!normalized) {
+    return "0.";
+  }
+
+  const decimals = normalized.startsWith("0.")
+    ? normalized.slice(2).replace(/\D/g, "")
+    : normalized.replace(/\D/g, "");
+
+  return `0.${decimals.slice(0, 2)}`;
+}
+
+function formatItemPriceInput(value: string) {
+  return value.replace(/\D/g, "").slice(0, itemPriceMaxLength);
+}
+
+function getInitialPriceForType(type: string) {
+  return type === "Wons" ? "0." : "";
 }
 
 function normalizeServer(value: string) {
@@ -191,8 +236,9 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1);
 
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
-  const [buyerContactMethod, setBuyerContactMethod] = useState("");
+  const [buyerContactMethod, setBuyerContactMethod] = useState("Discord");
   const [buyerContact, setBuyerContact] = useState("");
+  const [buyerDesired, setBuyerDesired] = useState("");
   const [buyerMessage, setBuyerMessage] = useState("");
 
   const [openedImage, setOpenedImage] = useState<string | null>(null);
@@ -204,25 +250,27 @@ export default function Home() {
   const [isTurnstileReady, setIsTurnstileReady] = useState(false);
   const [saleCaptchaToken, setSaleCaptchaToken] = useState("");
   const [buyCaptchaToken, setBuyCaptchaToken] = useState("");
+  const [interestCaptchaToken, setInterestCaptchaToken] = useState("");
   const [saleCaptchaResetKey, setSaleCaptchaResetKey] = useState(0);
   const [buyCaptchaResetKey, setBuyCaptchaResetKey] = useState(0);
+  const [interestCaptchaResetKey, setInterestCaptchaResetKey] = useState(0);
 
   const [sale, setSale] = useState({
     title: "",
     description: "",
-    server: "EUW-Iberia",
+    server: "",
     type: "Item",
     seller_expected_price: "",
-    seller_contact_method: "",
+    seller_contact_method: "Discord",
     seller_contact: "",
   });
 
   const [buyOrder, setBuyOrder] = useState({
     desired: "",
-    server: "EUW-Iberia",
+    server: "",
     type: "Wons",
-    max_price: "",
-    buyer_contact_method: "",
+    max_price: "0.",
+    buyer_contact_method: "Discord",
     buyer_contact: "",
     message: "",
   });
@@ -233,15 +281,16 @@ export default function Home() {
       sub: "Anúncios de contas, itens e wons com intermediação manual.",
       market: "Mercado",
       sell: "Vender",
-      buyOrder: "Buy order",
+      buyOrder: "Buy",
       search: "Pesquisar anúncio...",
       allServers: "Todos os servidores",
+      chooseServer: "Escolhe o servidor",
       allTypes: "Todos os tipos",
       found: "anúncio(s) encontrados",
       noImage: "Sem imagem",
       price: "Preço",
       available: "Disponível",
-      interest: "Tenho interesse",
+      interest: "Quero comprar",
       submitTitle: "Queres vender?",
       submitText:
         "Submete o teu item, conta ou wons. O teu contacto e preço pretendido ficam privados e só são visíveis para o administrador.",
@@ -249,14 +298,14 @@ export default function Home() {
       quantity: "Quantidade",
       sellerPrice: "Preço pretendido pelo vendedor",
       sellerPricePerWon: "Preço por won",
-      sellerContact: "Contacto do vendedor (privado)",
+      sellerContact: "Nome no Discord",
       description: "Descrição",
       imageRequired: "Imagem obrigatória para itens e contas",
       chooseImage: "Escolher imagem",
       noFileSelected: "Nenhuma imagem selecionada",
       sendSale: "Enviar para aprovação",
       backMarket: "← Voltar ao mercado",
-      buyerContact: "O teu contacto",
+      buyerContact: "Nome no Discord",
       contactMethod: "Contacto",
       contactNotice:
         "Os contactos fornecidos deverao ser Discord, Facebook ou WhatsApp.",
@@ -278,13 +327,14 @@ export default function Home() {
       noListingsText: "Tenta ajustar os filtros ou volta mais tarde.",
       buyOrderTitle: "Nao encontras o que queres?",
       buyOrderText:
-        "Cria uma buy order. Quando existir relacao com um anuncio, o admin recebe um aviso para acelerar a venda.",
+        "Cria um buy. Quando existir relacao com um anuncio, o admin recebe um aviso para acelerar a venda.",
       desiredItem: "O que queres comprar",
       maxPrice: "Preco maximo",
-      sendBuyOrder: "Criar buy order",
-      buyOrderSent: "Buy order enviada.",
+      sendBuyOrder: "Criar buy",
+      buyOrderSent: "Buy enviado.",
       buyOrderMissing: "Preenche o que procuras, contacto e preco maximo.",
-      invalidPrice: "Introduz um preco valido.",
+      invalidPrice:
+        "Para Wons usa 0.01 a 0.99. Para itens/contas usa ate 5 digitos.",
       invalidImage: "Usa uma imagem JPG, PNG ou WebP ate 4MB.",
     },
     en: {
@@ -292,15 +342,16 @@ export default function Home() {
       sub: "Listings for accounts, items and wons with manual mediation.",
       market: "Market",
       sell: "Sell",
-      buyOrder: "Buy order",
+      buyOrder: "Buy",
       search: "Search listing...",
       allServers: "All servers",
+      chooseServer: "Choose server",
       allTypes: "All types",
       found: "listing(s) found",
       noImage: "No image",
       price: "Price",
       available: "Available",
-      interest: "I'm interested",
+      interest: "I want to buy",
       submitTitle: "Want to sell?",
       submitText:
         "Submit your item, account or wons. Your contact and desired price stay private and are only visible to the admin.",
@@ -308,14 +359,14 @@ export default function Home() {
       quantity: "Quantity",
       sellerPrice: "Seller desired price",
       sellerPricePerWon: "Price per won",
-      sellerContact: "Seller contact (private)",
+      sellerContact: "Discord username",
       description: "Description",
       imageRequired: "Image required for items and accounts",
       chooseImage: "Choose image",
       noFileSelected: "No image selected",
       sendSale: "Send for approval",
       backMarket: "← Back to market",
-      buyerContact: "Your contact",
+      buyerContact: "Discord username",
       contactMethod: "Contact",
       contactNotice:
         "Provided contacts must be Discord, Facebook or WhatsApp.",
@@ -337,13 +388,14 @@ export default function Home() {
       noListingsText: "Try adjusting the filters or check back later.",
       buyOrderTitle: "Can not find what you want?",
       buyOrderText:
-        "Create a buy order. When it matches a listing, the admin gets an alert to speed up the sale.",
+        "Create a buy. When it matches a listing, the admin gets an alert to speed up the sale.",
       desiredItem: "What you want to buy",
       maxPrice: "Max price",
-      sendBuyOrder: "Create buy order",
-      buyOrderSent: "Buy order submitted.",
+      sendBuyOrder: "Create buy",
+      buyOrderSent: "Buy submitted.",
       buyOrderMissing: "Fill what you want, contact and max price.",
-      invalidPrice: "Enter a valid price.",
+      invalidPrice:
+        "For Wons use 0.01 to 0.99. For items/accounts use up to 5 digits.",
       invalidImage: "Use a JPG, PNG or WebP image up to 4MB.",
     },
     de: {
@@ -353,12 +405,13 @@ export default function Home() {
       sell: "Verkaufen",
       search: "Anzeige suchen...",
       allServers: "Alle Server",
+      chooseServer: "Server auswählen",
       allTypes: "Alle Typen",
       found: "Anzeige(n) gefunden",
       noImage: "Kein Bild",
       price: "Preis",
       available: "Verfügbar",
-      interest: "Ich bin interessiert",
+      interest: "Ich möchte kaufen",
       submitTitle: "Möchtest du verkaufen?",
       submitText:
         "Reiche dein Item, deinen Account oder Wons ein. Dein Kontakt und Wunschpreis bleiben privat und sind nur für den Admin sichtbar.",
@@ -366,14 +419,14 @@ export default function Home() {
       quantity: "Menge",
       sellerPrice: "Gewünschter Verkäuferpreis",
       sellerPricePerWon: "Preis pro Won",
-      sellerContact: "Verkäuferkontakt (privat)",
+      sellerContact: "Discord-Name",
       description: "Beschreibung",
       imageRequired: "Bild erforderlich für Items und Accounts",
       chooseImage: "Bild auswählen",
       noFileSelected: "Kein Bild ausgewählt",
       sendSale: "Zur Prüfung senden",
       backMarket: "← Zurück zum Markt",
-      buyerContact: "Dein Kontakt",
+      buyerContact: "Discord-Name",
       contactMethod: "Kontakt",
       contactNotice:
         "Die angegebenen Kontakte muessen Discord, Facebook oder WhatsApp sein.",
@@ -393,8 +446,8 @@ export default function Home() {
 loading: "Laden...",
 noListingsTitle: "Keine Anzeigen verfügbar",
 noListingsText: "Passe die Filter an oder schau später wieder vorbei.",
-buyOrder: "Kaufauftrag",
-invalidPrice: "Gib einen gültigen Preis ein.",
+buyOrder: "Buy",
+invalidPrice: "Für Wons 0.01 bis 0.99 nutzen. Für Items/Accounts bis 5 Ziffern.",
 invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
     },
     ro: {
@@ -404,12 +457,13 @@ invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
       sell: "Vinde",
       search: "Caută anunț...",
       allServers: "Toate serverele",
+      chooseServer: "Alege serverul",
       allTypes: "Toate tipurile",
       found: "anunț(uri) găsite",
       noImage: "Fără imagine",
       price: "Preț",
       available: "Disponibil",
-      interest: "Sunt interesat",
+      interest: "Vreau să cumpăr",
       submitTitle: "Vrei să vinzi?",
       submitText:
         "Trimite itemul, contul sau wons. Contactul și prețul dorit rămân private și sunt vizibile doar administratorului.",
@@ -417,14 +471,14 @@ invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
       quantity: "Cantitate",
       sellerPrice: "Preț dorit de vânzător",
       sellerPricePerWon: "Preț per won",
-      sellerContact: "Contact vânzător (privat)",
+      sellerContact: "Nume Discord",
       description: "Descriere",
       imageRequired: "Imagine obligatorie pentru iteme și conturi",
       chooseImage: "Alege imaginea",
       noFileSelected: "Nicio imagine selectată",
       sendSale: "Trimite spre aprobare",
       backMarket: "← Înapoi la piață",
-      buyerContact: "Contactul tău",
+      buyerContact: "Nume Discord",
       contactMethod: "Contact",
       contactNotice:
         "Contactele furnizate trebuie sa fie Discord, Facebook sau WhatsApp.",
@@ -444,8 +498,8 @@ invalidImage: "Verwende ein JPG-, PNG- oder WebP-Bild bis 4MB.",
 loading: "Se încarcă...",
 noListingsTitle: "Nu există anunțuri disponibile",
 noListingsText: "Încearcă să ajustezi filtrele sau revino mai târziu.",
-buyOrder: "Ordin de cumpărare",
-invalidPrice: "Introdu un preț valid.",
+buyOrder: "Buy",
+invalidPrice: "Pentru Wons foloseste 0.01-0.99. Pentru iteme/conturi maximum 5 cifre.",
 invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
     },
     tr: {
@@ -453,15 +507,16 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       sub: "Hesaplar, itemler ve wons icin manuel aracilikli ilanlar.",
       market: "Pazar",
       sell: "Sat",
-      buyOrder: "Alis emri",
+      buyOrder: "Buy",
       search: "Ilan ara...",
       allServers: "Tum sunucular",
+      chooseServer: "Sunucu sec",
       allTypes: "Tum turler",
       found: "ilan bulundu",
       noImage: "Gorsel yok",
       price: "Fiyat",
       available: "Musait",
-      interest: "Ilgileniyorum",
+      interest: "Satin almak istiyorum",
       submitTitle: "Satmak ister misin?",
       submitText:
         "Itemini, hesabini veya wons miktarini gonder. Iletisim bilgin ve istedigin fiyat gizli kalir, sadece admin tarafindan gorulur.",
@@ -469,14 +524,14 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       quantity: "Miktar",
       sellerPrice: "Saticinin istedigi fiyat",
       sellerPricePerWon: "Won basina fiyat",
-      sellerContact: "Satici iletisimi (gizli)",
+      sellerContact: "Discord adi",
       description: "Aciklama",
       imageRequired: "Itemler ve hesaplar icin gorsel zorunlu",
       chooseImage: "Gorsel sec",
       noFileSelected: "Gorsel secilmedi",
       sendSale: "Onaya gonder",
       backMarket: "← Pazara don",
-      buyerContact: "Iletisim bilgin",
+      buyerContact: "Discord adi",
       contactMethod: "Iletisim",
       contactNotice:
         "Verilen iletisim bilgileri Discord, Facebook veya WhatsApp olmalidir.",
@@ -501,69 +556,70 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
         "Bir alis emri olustur. Bir ilanla eslestiginde admin satisi hizlandirmak icin bildirim alir.",
       desiredItem: "Ne almak istiyorsun",
       maxPrice: "Maksimum fiyat",
-      sendBuyOrder: "Alis emri olustur",
-      buyOrderSent: "Alis emri gonderildi.",
+      sendBuyOrder: "Buy olustur",
+      buyOrderSent: "Buy gonderildi.",
       buyOrderMissing:
         "Aradigin miktari, iletisim bilgisini ve maksimum fiyati doldur.",
-      invalidPrice: "Gecerli bir fiyat gir.",
+      invalidPrice:
+        "Wons icin 0.01-0.99 kullan. Item/hesap icin en fazla 5 rakam.",
       invalidImage: "4MB'a kadar JPG, PNG veya WebP gorsel kullan.",
     },
   }[lang];
 
   const buyText = {
     pt: {
-      nav: "Ordem de compra",
+      nav: "Comprar",
       title: "Nao encontras o que queres?",
       intro:
-        "Cria uma buy order. Quando existir relacao com um anuncio, o admin recebe um aviso para acelerar a venda.",
+        "Cria um buy. Quando existir relacao com um anuncio, o admin recebe um aviso para acelerar a venda.",
       desired: "O que queres comprar",
       maxPrice: "Preco maximo",
-      send: "Criar buy order",
-      sent: "Buy order enviada.",
+      send: "Criar buy",
+      sent: "Buy enviado.",
       missing: "Preenche o que procuras, contacto e preco maximo.",
     },
     en: {
-      nav: "Buy order",
+      nav: "Buy",
       title: "Can not find what you want?",
       intro:
-        "Create a buy order. When it matches a listing, the admin gets an alert to speed up the sale.",
+        "Create a buy. When it matches a listing, the admin gets an alert to speed up the sale.",
       desired: "What you want to buy",
       maxPrice: "Max price",
-      send: "Create buy order",
-      sent: "Buy order submitted.",
+      send: "Create buy",
+      sent: "Buy submitted.",
       missing: "Fill what you want, contact and max price.",
     },
     de: {
-      nav: "Kaufauftrag",
+      nav: "Kaufen",
       title: "Findest du nicht, was du suchst?",
       intro:
-        "Erstelle eine Buy Order. Wenn sie zu einer Anzeige passt, bekommt der Admin eine Meldung.",
+        "Erstelle einen Buy. Wenn er zu einer Anzeige passt, bekommt der Admin eine Meldung.",
       desired: "Was du kaufen willst",
       maxPrice: "Maximaler Preis",
-      send: "Buy order erstellen",
-      sent: "Buy order gesendet.",
+      send: "Buy erstellen",
+      sent: "Buy gesendet.",
       missing: "Fuellen Sie Wunsch, Kontakt und Maximalpreis aus.",
     },
     ro: {
-      nav: "Ordin de cumparare",
+      nav: "Cumpără",
       title: "Nu gasesti ce cauti?",
       intro:
-        "Creeaza o buy order. Cand se potriveste cu un anunt, adminul primeste o alerta.",
+        "Creeaza un buy. Cand se potriveste cu un anunt, adminul primeste o alerta.",
       desired: "Ce vrei sa cumperi",
       maxPrice: "Pret maxim",
-      send: "Creeaza buy order",
-      sent: "Buy order trimisa.",
+      send: "Creeaza buy",
+      sent: "Buy trimis.",
       missing: "Completeaza ce cauti, contactul si pretul maxim.",
     },
     tr: {
-      nav: "Alis emri",
+      nav: "Al",
       title: "Aradigini bulamadim mi?",
       intro:
-        "Bir alis emri olustur. Bir ilanla eslestiginde admin satisi hizlandirmak icin bildirim alir.",
+        "Bir buy olustur. Bir ilanla eslestiginde admin satisi hizlandirmak icin bildirim alir.",
       desired: "Ne almak istiyorsun",
       maxPrice: "Maksimum fiyat",
-      send: "Alis emri olustur",
-      sent: "Alis emri gonderildi.",
+      send: "Buy olustur",
+      sent: "Buy gonderildi.",
       missing:
         "Aradigin miktari, iletisim bilgisini ve maksimum fiyati doldur.",
     },
@@ -679,13 +735,16 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       type: sale.type,
       seller_expected_price: sale.seller_expected_price
         .trim()
-        .slice(0, priceMaxLength),
+        .slice(0, sale.type === "Wons" ? priceMaxLength : itemPriceMaxLength),
       seller_contact: cleanText(sale.seller_contact, contactMaxLength),
     };
 
     const missingSaleFields = [
+      !cleanedSale.server && text.chooseServer,
       !cleanedSale.title && (sale.type === "Wons" ? text.quantity : text.title),
-      !cleanedSale.seller_expected_price &&
+      (sale.type === "Wons"
+        ? isIncompleteCentPrice(cleanedSale.seller_expected_price)
+        : !cleanedSale.seller_expected_price) &&
         (sale.type === "Wons" ? text.sellerPricePerWon : text.sellerPrice),
       !sale.seller_contact_method && text.contactMethod,
       sale.seller_contact_method &&
@@ -698,7 +757,12 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       return;
     }
 
-    if (!isPositiveNumber(cleanedSale.seller_expected_price)) {
+    const isValidSalePrice =
+      sale.type === "Wons"
+        ? isValidCentPrice(cleanedSale.seller_expected_price)
+        : isValidItemPrice(cleanedSale.seller_expected_price);
+
+    if (!isValidSalePrice) {
       toast.error(text.invalidPrice);
       return;
     }
@@ -756,10 +820,10 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
     setSale({
       title: "",
       description: "",
-      server: "EUW-Iberia",
+      server: "",
       type: "Item",
       seller_expected_price: "",
-      seller_contact_method: "",
+      seller_contact_method: "Discord",
       seller_contact: "",
     });
 
@@ -772,11 +836,15 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
 
   async function sendInterest() {
     const cleanedBuyerContact = cleanText(buyerContact, contactMaxLength);
+    const cleanedBuyerDesired = cleanText(buyerDesired, quantityMaxLength);
     const cleanedBuyerMessage = cleanMultiline(buyerMessage, 600);
+    const isWonListing = selectedListing?.type === "Wons";
 
     const missingInterestFields = [
+      isWonListing && !cleanedBuyerDesired && text.quantity,
       !buyerContactMethod && text.contactMethod,
       buyerContactMethod && !cleanedBuyerContact && text.buyerContact,
+      isCaptchaEnabled && !interestCaptchaToken && text.captcha,
     ].filter(Boolean) as string[];
 
     if (!selectedListing || missingInterestFields.length > 0) {
@@ -791,7 +859,9 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        captcha: interestCaptchaToken,
         listing_id: selectedListing.id,
+        desired: isWonListing ? cleanedBuyerDesired : selectedListing.title,
         buyer_contact_method: buyerContactMethod,
         buyer_contact: cleanedBuyerContact,
         message: cleanedBuyerMessage,
@@ -803,6 +873,8 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
         error?: string;
       };
       setIsSendingInterest(false);
+      setInterestCaptchaToken("");
+      setInterestCaptchaResetKey((key) => key + 1);
       toast.error(result.error || text.captchaFailed);
       return;
     }
@@ -810,9 +882,12 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
     toast.success(text.requestSent);
     setIsSendingInterest(false);
     setSelectedListing(null);
-    setBuyerContactMethod("");
+    setBuyerContactMethod("Discord");
     setBuyerContact("");
+    setBuyerDesired("");
     setBuyerMessage("");
+    setInterestCaptchaToken("");
+    setInterestCaptchaResetKey((key) => key + 1);
   }
 
   async function submitBuyOrder() {
@@ -826,8 +901,9 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
     };
 
     const missingBuyOrderFields = [
+      !cleanedBuyOrder.server && text.chooseServer,
       !cleanedBuyOrder.desired && text.quantity,
-      !cleanedBuyOrder.max_price && buyText.maxPrice,
+      isIncompleteCentPrice(cleanedBuyOrder.max_price) && buyText.maxPrice,
       !buyOrder.buyer_contact_method && text.contactMethod,
       buyOrder.buyer_contact_method &&
         !cleanedBuyOrder.buyer_contact &&
@@ -839,7 +915,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       return;
     }
 
-    if (!isPositiveNumber(cleanedBuyOrder.max_price)) {
+    if (!isValidCentPrice(cleanedBuyOrder.max_price)) {
       toast.error(text.invalidPrice);
       return;
     }
@@ -878,10 +954,10 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
     setBuyCaptchaResetKey((key) => key + 1);
     setBuyOrder({
       desired: "",
-      server: "EUW-Iberia",
+      server: "",
       type: "Wons",
-      max_price: "",
-      buyer_contact_method: "",
+      max_price: "0.",
+      buyer_contact_method: "Discord",
       buyer_contact: "",
       message: "",
     });
@@ -913,21 +989,30 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
           },
         }}
       />
-      <Script
-        src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
-        strategy="afterInteractive"
-        onLoad={() => setIsTurnstileReady(true)}
-        onReady={() => setIsTurnstileReady(true)}
-      />
+      {isCaptchaEnabled && (
+        <Script
+          src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+          strategy="afterInteractive"
+          onLoad={() => setIsTurnstileReady(true)}
+          onReady={() => setIsTurnstileReady(true)}
+        />
+      )}
 
       <header className="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/[0.82] backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-5 md:flex-row md:items-center md:justify-between">
-          <div>
+          <button
+            type="button"
+            onClick={() => {
+              setView("market");
+              setCurrentPage(1);
+            }}
+            className="w-fit text-left"
+          >
             <h1 className="text-2xl font-black tracking-tight">
               Asrold Market
             </h1>
             <p className="text-sm text-emerald-200/70">Metin2 Marketplace</p>
-          </div>
+          </button>
 
           <div className="flex flex-wrap items-center gap-3 md:justify-end">
             <div className="flex items-center gap-2">
@@ -935,50 +1020,20 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                 <button
                   key={l}
                   onClick={() => setLang(l)}
-                  className={`w-11 rounded-lg border px-3 py-2 text-center text-sm ${
+                  aria-label={languageOptions[l].label}
+                  title={languageOptions[l].label}
+                  className={`flex h-10 w-12 items-center justify-center rounded-lg border ${
                     lang === l
                       ? "border-white bg-white text-black shadow-lg shadow-white/10"
                       : "border-white/10 bg-neutral-900/80 text-neutral-300 hover:border-white/25 hover:bg-neutral-800"
                   }`}
                 >
-                  {l.toUpperCase()}
+                  <span
+                    aria-hidden="true"
+                    className={`language-flag ${languageOptions[l].flagClass}`}
+                  />
                 </button>
               ))}
-            </div>
-
-            <div className="grid w-full grid-cols-1 gap-2 min-[520px]:w-auto min-[520px]:grid-cols-3">
-              <button
-                onClick={() => setView("market")}
-                className={`w-full whitespace-nowrap rounded-xl border px-4 py-2 text-center text-sm font-semibold min-[520px]:w-44 ${
-                  view === "market"
-                    ? "border-white bg-white text-black shadow-lg shadow-white/10"
-                    : "border-white/10 bg-neutral-900/80 text-white hover:border-white/25 hover:bg-neutral-800"
-                }`}
-              >
-                {text.market}
-              </button>
-
-              <button
-                onClick={() => setView("sell")}
-                className={`w-full whitespace-nowrap rounded-xl border px-4 py-2 text-center text-sm font-semibold min-[520px]:w-44 ${
-                  view === "sell"
-                    ? "border-white bg-white text-black shadow-lg shadow-white/10"
-                    : "border-white/10 bg-neutral-900/80 text-white hover:border-white/25 hover:bg-neutral-800"
-                }`}
-              >
-                {text.sell}
-              </button>
-
-              <button
-                onClick={() => setView("buy")}
-                className={`w-full whitespace-nowrap rounded-xl border px-4 py-2 text-center text-sm font-semibold min-[520px]:w-44 ${
-                  view === "buy"
-                    ? "border-white bg-white text-black shadow-lg shadow-white/10"
-                    : "border-white/10 bg-neutral-900/80 text-white hover:border-white/25 hover:bg-neutral-800"
-                }`}
-              >
-                {buyText.nav}
-              </button>
             </div>
           </div>
         </div>
@@ -1001,19 +1056,21 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                 {text.sub}
               </p>
 
-              <button
-                onClick={() => setView("sell")}
-                className="relative mt-8 rounded-xl bg-white px-6 py-3 font-semibold text-black shadow-xl shadow-white/10 hover:-translate-y-0.5 hover:bg-neutral-200"
-              >
-                {text.sell}
-              </button>
+              <div className="relative mt-8 grid gap-3 sm:grid-cols-2">
+                <button
+                  onClick={() => setView("sell")}
+                  className="rounded-2xl border border-red-200/40 bg-red-300 px-7 py-4 text-base font-black text-black shadow-2xl shadow-red-950/25 hover:-translate-y-1 hover:bg-red-200"
+                >
+                  {text.sell}
+                </button>
 
-              <button
-                onClick={() => setView("buy")}
-                className="relative ml-3 mt-8 rounded-xl bg-white px-6 py-3 font-semibold text-black shadow-xl shadow-white/10 hover:-translate-y-0.5 hover:bg-neutral-200"
-              >
-                {buyText.nav}
-              </button>
+                <button
+                  onClick={() => setView("buy")}
+                  className="rounded-2xl border border-emerald-200/50 bg-emerald-300 px-7 py-4 text-base font-black text-black shadow-2xl shadow-emerald-950/30 hover:-translate-y-1 hover:bg-emerald-200"
+                >
+                  {buyText.nav}
+                </button>
+              </div>
             </div>
           </section>
 
@@ -1036,7 +1093,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     setServer(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                  className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                 >
                   {servers.map((s) => (
                     <option key={s} value={s}>
@@ -1051,7 +1108,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     setType(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                  className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                 >
                   {allTypes.map((t) => (
                     <option key={t} value={t}>
@@ -1167,7 +1224,11 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
       <p className="text-2xl font-black">{item.price}</p>
 
       <button
-        onClick={() => setSelectedListing(item)}
+        onClick={() => {
+          setSelectedListing(item);
+          setBuyerDesired(item.type === "Wons" ? item.title : "");
+          setBuyerContactMethod("Discord");
+        }}
         className="mt-4 w-full rounded-xl bg-white px-4 py-3 text-sm font-bold text-black shadow-lg shadow-white/10 hover:-translate-y-0.5 hover:bg-neutral-200"
       >
         {text.interest}
@@ -1234,8 +1295,11 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     onChange={(e) =>
                       setSale({ ...sale, server: e.target.value })
                     }
-                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                   >
+                    <option value="" disabled>
+                      {text.chooseServer}
+                    </option>
                     {servers
                       .filter((s) => s !== "Todos")
                       .map((s) => (
@@ -1246,14 +1310,19 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                   <select
                     value={sale.type}
                     onChange={(e) => {
-                      setSale({ ...sale, type: e.target.value });
+                      const nextType = e.target.value;
+                      setSale({
+                        ...sale,
+                        type: nextType,
+                        seller_expected_price: getInitialPriceForType(nextType),
+                      });
                       setImageFile(null);
 
                       if (fileInputRef.current) {
                         fileInputRef.current.value = "";
                       }
                     }}
-                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                   >
                     {saleTypes.map((t) => (
                       <option key={t} value={t}>
@@ -1300,9 +1369,13 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="relative">
                     <input
-                      type="number"
-                      min="0"
-                      max="9999"
+                      type="text"
+                      inputMode="decimal"
+                      maxLength={
+                        sale.type === "Wons"
+                          ? priceMaxLength
+                          : itemPriceMaxLength
+                      }
                       placeholder={
                         sale.type === "Wons"
                           ? text.sellerPricePerWon
@@ -1312,10 +1385,10 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                       onChange={(e) =>
                         setSale({
                           ...sale,
-                          seller_expected_price: e.target.value.slice(
-                            0,
-                            priceMaxLength
-                          ),
+                          seller_expected_price:
+                            sale.type === "Wons"
+                              ? formatCentPriceInput(e.target.value)
+                              : formatItemPriceInput(e.target.value),
                         })
                       }
                       className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-10 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
@@ -1326,13 +1399,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     </span>
                   </div>
 
-                  <div
-                    className={`grid gap-3 md:col-span-2 ${
-                      sale.seller_contact_method
-                        ? "sm:grid-cols-[9rem_1fr]"
-                        : ""
-                    }`}
-                  >
+                  <div className="grid gap-3 md:col-span-2 sm:grid-cols-[9rem_1fr]">
                     <select
                       value={sale.seller_contact_method}
                       onChange={(e) =>
@@ -1341,9 +1408,8 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                           seller_contact_method: e.target.value,
                         })
                       }
-                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                     >
-                      <option value="">{text.contactMethod}</option>
                       {contactMethods.map((method) => (
                         <option key={method} value={method}>
                           {method}
@@ -1351,17 +1417,15 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                       ))}
                     </select>
 
-                    {sale.seller_contact_method && (
-                      <input
-                        placeholder={text.sellerContact}
-                        maxLength={contactMaxLength}
-                        value={sale.seller_contact}
-                        onChange={(e) =>
-                          setSale({ ...sale, seller_contact: e.target.value })
-                        }
-                        className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                      />
-                    )}
+                    <input
+                      placeholder={text.sellerContact}
+                      maxLength={contactMaxLength}
+                      value={sale.seller_contact}
+                      onChange={(e) =>
+                        setSale({ ...sale, seller_contact: e.target.value })
+                      }
+                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    />
                   </div>
                 </div>
 
@@ -1417,17 +1481,19 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                   className="min-h-28 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                 />
 
-                <div className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3">
-                  <p className="mb-3 text-sm font-semibold text-neutral-300">
-                    {text.captcha}
-                  </p>
-                  <TurnstileBox
-                    isReady={isTurnstileReady}
-                    resetKey={saleCaptchaResetKey}
-                    onToken={setSaleCaptchaToken}
-                    onExpire={() => setSaleCaptchaToken("")}
-                  />
-                </div>
+                {isCaptchaEnabled && (
+                  <div className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3">
+                    <p className="mb-3 text-sm font-semibold text-neutral-300">
+                      {text.captcha}
+                    </p>
+                    <TurnstileBox
+                      isReady={isTurnstileReady}
+                      resetKey={saleCaptchaResetKey}
+                      onToken={setSaleCaptchaToken}
+                      onExpire={() => setSaleCaptchaToken("")}
+                    />
+                  </div>
+                )}
 
                 <button
                   onClick={submitSale}
@@ -1470,8 +1536,11 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     onChange={(e) =>
                       setBuyOrder({ ...buyOrder, server: e.target.value })
                     }
-                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                   >
+                    <option value="" disabled>
+                      {text.chooseServer}
+                    </option>
                     {servers
                       .filter((s) => s !== "Todos")
                       .map((s) => (
@@ -1484,7 +1553,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     onChange={(e) =>
                       setBuyOrder({ ...buyOrder, type: e.target.value })
                     }
-                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                   >
                     {buyOrderTypes.map((t) => (
                       <option key={t} value={t}>
@@ -1518,15 +1587,15 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="relative">
                     <input
-                      type="number"
-                      min="0"
-                      max="9999"
+                      type="text"
+                      inputMode="decimal"
+                      maxLength={priceMaxLength}
                       placeholder={buyText.maxPrice}
                       value={buyOrder.max_price}
                       onChange={(e) =>
                         setBuyOrder({
                           ...buyOrder,
-                          max_price: e.target.value.slice(0, priceMaxLength),
+                          max_price: formatCentPriceInput(e.target.value),
                         })
                       }
                       className="w-full rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-10 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
@@ -1536,13 +1605,7 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                     </span>
                   </div>
 
-                  <div
-                    className={`grid gap-3 md:col-span-2 ${
-                      buyOrder.buyer_contact_method
-                        ? "sm:grid-cols-[9rem_1fr]"
-                        : ""
-                    }`}
-                  >
+                  <div className="grid gap-3 md:col-span-2 sm:grid-cols-[9rem_1fr]">
                     <select
                       value={buyOrder.buyer_contact_method}
                       onChange={(e) =>
@@ -1551,9 +1614,8 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                           buyer_contact_method: e.target.value,
                         })
                       }
-                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                     >
-                      <option value="">{text.contactMethod}</option>
                       {contactMethods.map((method) => (
                         <option key={method} value={method}>
                           {method}
@@ -1561,20 +1623,18 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                       ))}
                     </select>
 
-                    {buyOrder.buyer_contact_method && (
-                      <input
-                        placeholder={text.buyerContact}
-                        maxLength={contactMaxLength}
-                        value={buyOrder.buyer_contact}
-                        onChange={(e) =>
-                          setBuyOrder({
-                            ...buyOrder,
-                            buyer_contact: e.target.value,
-                          })
-                        }
-                        className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                      />
-                    )}
+                    <input
+                      placeholder={text.buyerContact}
+                      maxLength={contactMaxLength}
+                      value={buyOrder.buyer_contact}
+                      onChange={(e) =>
+                        setBuyOrder({
+                          ...buyOrder,
+                          buyer_contact: e.target.value,
+                        })
+                      }
+                      className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                    />
                   </div>
                 </div>
 
@@ -1588,17 +1648,19 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                   className="min-h-28 rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                 />
 
-                <div className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3">
-                  <p className="mb-3 text-sm font-semibold text-neutral-300">
-                    {text.captcha}
-                  </p>
-                  <TurnstileBox
-                    isReady={isTurnstileReady}
-                    resetKey={buyCaptchaResetKey}
-                    onToken={setBuyCaptchaToken}
-                    onExpire={() => setBuyCaptchaToken("")}
-                  />
-                </div>
+                {isCaptchaEnabled && (
+                  <div className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3">
+                    <p className="mb-3 text-sm font-semibold text-neutral-300">
+                      {text.captcha}
+                    </p>
+                    <TurnstileBox
+                      isReady={isTurnstileReady}
+                      resetKey={buyCaptchaResetKey}
+                      onToken={setBuyCaptchaToken}
+                      onExpire={() => setBuyCaptchaToken("")}
+                    />
+                  </div>
+                )}
 
                 <button
                   onClick={submitBuyOrder}
@@ -1621,17 +1683,34 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
               {selectedListing.server} · {selectedListing.price}
             </p>
 
-            <div
-              className={`mt-5 grid gap-3 ${
-                buyerContactMethod ? "sm:grid-cols-[9rem_1fr]" : ""
-              }`}
-            >
+            {selectedListing.type === "Wons" && (
+              <div className="mt-5">
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    maxLength={quantityMaxLength}
+                    placeholder={text.quantity}
+                    value={buyerDesired}
+                    onChange={(e) =>
+                      setBuyerDesired(e.target.value.slice(0, quantityMaxLength))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 pr-10 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                  />
+                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-bold text-yellow-300">
+                    W
+                  </span>
+                </div>
+
+              </div>
+            )}
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-[9rem_1fr]">
               <select
                 value={buyerContactMethod}
                 onChange={(e) => setBuyerContactMethod(e.target.value)}
-                className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
               >
-                <option value="">{text.contactMethod}</option>
                 {contactMethods.map((method) => (
                   <option key={method} value={method}>
                     {method}
@@ -1639,15 +1718,13 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
                 ))}
               </select>
 
-              {buyerContactMethod && (
-                <input
-                  placeholder={text.buyerContact}
-                  maxLength={contactMaxLength}
-                  value={buyerContact}
-                  onChange={(e) => setBuyerContact(e.target.value)}
-                  className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
-                />
-              )}
+              <input
+                placeholder={text.buyerContact}
+                maxLength={contactMaxLength}
+                value={buyerContact}
+                onChange={(e) => setBuyerContact(e.target.value)}
+                className="w-full min-w-0 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+              />
             </div>
 
             <textarea
@@ -1657,6 +1734,20 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
               onChange={(e) => setBuyerMessage(e.target.value)}
               className="mt-3 min-h-24 w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
             />
+
+            {isCaptchaEnabled && (
+              <div className="mt-3 rounded-xl border border-white/10 bg-neutral-950 px-4 py-3">
+                <p className="mb-3 text-sm font-semibold text-neutral-300">
+                  {text.captcha}
+                </p>
+                <TurnstileBox
+                  isReady={isTurnstileReady}
+                  resetKey={interestCaptchaResetKey}
+                  onToken={setInterestCaptchaToken}
+                  onExpire={() => setInterestCaptchaToken("")}
+                />
+              </div>
+            )}
 
             <div className="mt-4 flex gap-3">
               <button
@@ -1668,7 +1759,12 @@ invalidImage: "Folosește o imagine JPG, PNG sau WebP de maximum 4MB.",
               </button>
 
               <button
-                onClick={() => setSelectedListing(null)}
+                onClick={() => {
+                  setSelectedListing(null);
+                  setBuyerDesired("");
+                  setInterestCaptchaToken("");
+                  setInterestCaptchaResetKey((key) => key + 1);
+                }}
                 className="flex-1 rounded-xl border border-white/10 bg-neutral-800 px-4 py-3 hover:bg-neutral-700"
               >
                 {text.close}

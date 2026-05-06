@@ -3,7 +3,8 @@ import {
   cleanMultiline,
   cleanText,
   formatContact,
-  isPositiveNumber,
+  isValidCentPrice,
+  isValidItemPrice,
   validateImage,
   verifyTurnstile,
 } from "../../../lib/public-submit";
@@ -11,7 +12,10 @@ import {
 export async function POST(request: Request) {
   const supabaseAdmin = getSupabaseAdmin();
   const formData = await request.formData();
-  const captcha = await verifyTurnstile(cleanText(formData.get("captcha"), 2000));
+  const captcha = await verifyTurnstile(
+    cleanText(formData.get("captcha"), 2000),
+    request
+  );
 
   if (!captcha.ok) {
     return Response.json({ error: captcha.error }, { status: 403 });
@@ -21,7 +25,10 @@ export async function POST(request: Request) {
   const title = cleanText(formData.get("title"), type === "Wons" ? 6 : 25);
   const description = cleanMultiline(formData.get("description"), 200);
   const server = cleanText(formData.get("server"), 40);
-  const sellerExpectedPrice = cleanText(formData.get("seller_expected_price"), 4);
+  const sellerExpectedPrice = cleanText(
+    formData.get("seller_expected_price"),
+    type === "Wons" ? 4 : 5
+  );
   const sellerContactMethod = cleanText(formData.get("seller_contact_method"), 20);
   const sellerContact = cleanText(formData.get("seller_contact"), 50);
   const image = formData.get("image");
@@ -38,8 +45,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing required fields." }, { status: 400 });
   }
 
-  if (!isPositiveNumber(sellerExpectedPrice)) {
-    return Response.json({ error: "Invalid price." }, { status: 400 });
+  const validPrice =
+    type === "Wons"
+      ? isValidCentPrice(sellerExpectedPrice)
+      : isValidItemPrice(sellerExpectedPrice);
+
+  if (!validPrice) {
+    return Response.json(
+      {
+        error:
+          "For Wons use 0.01 to 0.99. For items/accounts use up to 5 digits.",
+      },
+      { status: 400 }
+    );
   }
 
   if ((type === "Item" || type === "Conta") && !imageFile) {
