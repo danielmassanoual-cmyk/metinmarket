@@ -5,7 +5,22 @@ import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../../lib/supabase";
 
-const servers = ["Iberia", "Tigerghost", "Ruby", "Azrael", "Teutonia"];
+const servers = [
+  "EUW-Iberia",
+  "EUW-Tigerghost",
+  "EUW-Ruby",
+  "EUW-Germania",
+  "EUW-Teutonia",
+  "EUW-Oceane",
+  "EUW-Chimera",
+  "EUW-Europe",
+  "EUW-Italia",
+  "EUW-Lumen",
+  "TR-Safir",
+  "TR-Star",
+  "TR-Charon",
+  "TR-Lucifer",
+];
 const types = ["Item", "Conta", "Wons"];
 const allowedAdminEmail = "danielmassano.ual@gmail.com";
 const adminPageSize = 8;
@@ -128,6 +143,19 @@ type ListingEditData = Partial<
 
 function formatServerLabel(value: string | null | undefined) {
   return (value || "-").replace(/^EUW-/, "");
+}
+
+function normalizeAdminServer(value: string | null | undefined) {
+  if (!value) return "EUW-Iberia";
+  if (servers.includes(value)) return value;
+
+  const euwServer = `EUW-${value}`;
+  if (servers.includes(euwServer)) return euwServer;
+
+  const trServer = `TR-${value}`;
+  if (servers.includes(trServer)) return trServer;
+
+  return value;
 }
 
 function formatEuro(value: number) {
@@ -2217,7 +2245,7 @@ export default function Admin() {
 
                         <div className="grid gap-3 md:grid-cols-3">
                           <select
-                            value={editData.server || "Iberia"}
+                            value={normalizeAdminServer(editData.server)}
                             onChange={(e) =>
                               setEditData({
                                 ...editData,
@@ -2319,7 +2347,10 @@ export default function Admin() {
                       <button
                         onClick={() => {
                           setEditing(item.id);
-                          setEditData(item);
+                          setEditData({
+                            ...item,
+                            server: normalizeAdminServer(item.server),
+                          });
                         }}
                         className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-bold text-white"
                       >

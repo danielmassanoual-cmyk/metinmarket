@@ -1741,7 +1741,7 @@ const text = {
               <DiscordButton label="Asrold#3891" compact disabled />
               <DiscordButton
                 label="Join Discord server"
-                href="https://discord.gg/VrUFhSNtuE"
+                href="https://discord.gg/AGT9YFnvK"
                 compact
               />
             </div>
