@@ -1,16 +1,11 @@
 import { getSupabaseAdmin } from "../../../lib/supabase-admin";
 import { checkRateLimit } from "../../../lib/rate-limit";
 import { blockIfMaintenance } from "../../../lib/site-settings";
-import {
-  cleanMultiline,
-  cleanText,
-  formatContact,
-  verifyTurnstile,
-} from "../../../lib/public-submit";
+import { cleanMultiline, cleanText, verifyTurnstile } from "../../../lib/public-submit";
 
 export async function POST(request: Request) {
   const supabaseAdmin = getSupabaseAdmin();
-  const rateLimit = checkRateLimit(request, "interest-requests");
+  const rateLimit = checkRateLimit(request, "listing-reports");
 
   if (!rateLimit.ok) {
     return Response.json(
@@ -34,26 +29,18 @@ export async function POST(request: Request) {
     return Response.json({ error: captcha.error }, { status: 403 });
   }
 
-  const desired = cleanText(String(body.desired || ""), 6);
   const listingId = cleanText(String(body.listing_id || ""), 80);
-  const maxPrice = cleanText(String(body.max_price || ""), 4);
-  const buyerContactMethod = cleanText(
-    String(body.buyer_contact_method || ""),
-    20
-  );
-  const buyerContact = cleanText(String(body.buyer_contact || ""), 50);
-  const message = cleanMultiline(String(body.message || ""), 600);
+  const reason = cleanMultiline(String(body.reason || ""), 500);
+  const reporterContact = cleanText(String(body.reporter_contact || ""), 80);
 
-  if (!listingId || !desired || !buyerContactMethod || !buyerContact) {
+  if (!listingId || !reason) {
     return Response.json({ error: "Missing required fields." }, { status: 400 });
   }
 
-  const { error } = await supabaseAdmin.from("interest_requests").insert({
+  const { error } = await supabaseAdmin.from("listing_reports").insert({
     listing_id: listingId,
-    desired,
-    max_price: maxPrice ? `${maxPrice}€` : null,
-    buyer_contact: formatContact(buyerContactMethod, buyerContact),
-    message,
+    reason,
+    reporter_contact: reporterContact || null,
     status: "Open",
   });
 

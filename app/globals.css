@@ -101,6 +101,27 @@ select {
   transform: translate(-50%, -50%);
 }
 
+.flag-es {
+  background-color: #f1bf00;
+  background-image: linear-gradient(180deg, #aa151b 0 25%, #f1bf00 25% 75%, #aa151b 75% 100%);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.flag-es::after {
+  content: "";
+  position: absolute;
+  left: 0.55rem;
+  top: 50%;
+  width: 0.28rem;
+  height: 0.42rem;
+  border-radius: 0.05rem;
+  background: #aa151b;
+  box-shadow: 0 0 0 0.06rem rgba(255, 255, 255, 0.75);
+  transform: translateY(-50%);
+}
+
 .flag-de {
   background: linear-gradient(180deg, #000000 0 33.33%, #dd0000 33.33% 66.66%, #ffce00 66.66% 100%);
 }

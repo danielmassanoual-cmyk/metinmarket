@@ -6,7 +6,7 @@ import Script from "next/script";
 import toast, { Toaster } from "react-hot-toast";
 import { supabase } from "../lib/supabase";
 
-type Lang = "pt" | "en" | "de" | "ro" | "tr";
+type Lang = "pt" | "en" | "es" | "de" | "ro" | "tr";
 type View = "market" | "sell" | "buy";
 
 type Listing = {
@@ -18,6 +18,8 @@ type Listing = {
   price: string;
   status: string | null;
   image_url: string | null;
+  created_at?: string | null;
+  group_listing_ids?: string[];
 };
 
 const servers = ["Todos", "EUW-Iberia", "EUW-Tigerghost", "EUW-Ruby", "EUW-Germania", "EUW-Teutonia", "EUW-Oceane", "EUW-Chimera", "EUW-Europe", "EUW-Italia", "EUW-Lumen", "TR-Safir", "TR-Star", "TR-Charon", "TR-Lucifer"];
@@ -41,6 +43,7 @@ const itemCategories = [
 ];
 const languageOptions: Record<Lang, { flagClass: string; label: string }> = {
   en: { flagClass: "flag-gb", label: "English" },
+  es: { flagClass: "flag-es", label: "Español" },
   pt: { flagClass: "flag-pt", label: "PortuguÃªs" },
   de: { flagClass: "flag-de", label: "Deutsch" },
   ro: { flagClass: "flag-ro", label: "RomÃ¢nÄƒ" },
@@ -73,7 +76,13 @@ function isPositiveNumber(value: string) {
 }
 
 function isValidCentPrice(value: string) {
-  return /^0\.\d{2}$/.test(value) && isPositiveNumber(value);
+  return /^0\.\d{1,2}$/.test(value) && isPositiveNumber(value);
+}
+
+function normalizeCentPrice(value: string) {
+  if (!isValidCentPrice(value)) return value;
+
+  return Number(value).toFixed(2);
 }
 
 function isValidItemPrice(value: string) {
@@ -123,6 +132,17 @@ function parseQuantity(value: string | number | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseListingPrice(value: string | number | null | undefined) {
+  if (typeof value === "number") return value;
+  if (!value) return 0;
+
+  const parsed = Number.parseFloat(
+    String(value).replace(/[^\d,.-]/g, "").replace(",", ".")
+  );
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function ContactHint({
   method,
   text,
@@ -152,29 +172,48 @@ function DiscordButton({
   label,
   href = "https://discord.com/channels/@me",
   compact = false,
+  disabled = false,
 }: {
   label: string;
   href?: string;
   compact?: boolean;
+  disabled?: boolean;
 }) {
+  const className = `relative inline-flex h-10 items-center gap-2 rounded-xl border border-[#5865F2]/30 bg-[#5865F2]/12 px-3 text-sm font-bold text-indigo-100 ${
+    disabled
+      ? "cursor-default"
+      : "hover:border-[#5865F2]/70 hover:bg-[#5865F2]/25"
+  } ${compact ? "" : "mt-3"}`;
+  const content = (
+    <>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-4 w-4 flex-none fill-current"
+      >
+        <path d="M19.54 5.34A16.9 16.9 0 0 0 15.32 4l-.2.4a11.7 11.7 0 0 1 3.72 1.86 12.7 12.7 0 0 0-11.7 0 11.7 11.7 0 0 1 3.72-1.86l-.2-.4a16.9 16.9 0 0 0-4.22 1.34C3.77 9.03 3.3 12.63 3.6 16.18A17 17 0 0 0 8.77 18.8l.62-.85a10.7 10.7 0 0 1-1.64-.78l.39-.3a12.1 12.1 0 0 0 7.72 0l.39.3c-.52.31-1.07.57-1.64.78l.62.85a17 17 0 0 0 5.17-2.62c.35-4.12-.6-7.68-2.86-10.84ZM9.43 14.04c-.8 0-1.46-.74-1.46-1.64s.64-1.64 1.46-1.64c.81 0 1.48.74 1.46 1.64 0 .9-.65 1.64-1.46 1.64Zm5.14 0c-.8 0-1.46-.74-1.46-1.64s.64-1.64 1.46-1.64c.82 0 1.48.74 1.46 1.64 0 .9-.64 1.64-1.46 1.64Z" />
+      </svg>
+      <span className="whitespace-nowrap">{label}</span>
+    </>
+  );
+
+  if (disabled) {
+    return (
+      <span className={className} title={label}>
+        {content}
+      </span>
+    );
+  }
+
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className={`relative inline-flex items-center gap-2 rounded-xl border border-[#5865F2]/35 bg-[#5865F2]/15 px-3 py-2 text-sm font-bold text-indigo-100 hover:border-[#5865F2]/70 hover:bg-[#5865F2]/25 ${
-        compact ? "" : "mt-3"
-      }`}
+      className={className}
       title={label}
     >
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 24 24"
-        className="h-5 w-5 fill-current"
-      >
-        <path d="M19.54 5.34A16.9 16.9 0 0 0 15.32 4l-.2.4a11.7 11.7 0 0 1 3.72 1.86 12.7 12.7 0 0 0-11.7 0 11.7 11.7 0 0 1 3.72-1.86l-.2-.4a16.9 16.9 0 0 0-4.22 1.34C3.77 9.03 3.3 12.63 3.6 16.18A17 17 0 0 0 8.77 18.8l.62-.85a10.7 10.7 0 0 1-1.64-.78l.39-.3a12.1 12.1 0 0 0 7.72 0l.39.3c-.52.31-1.07.57-1.64.78l.62.85a17 17 0 0 0 5.17-2.62c.35-4.12-.6-7.68-2.86-10.84ZM9.43 14.04c-.8 0-1.46-.74-1.46-1.64s.64-1.64 1.46-1.64c.81 0 1.48.74 1.46 1.64 0 .9-.65 1.64-1.46 1.64Zm5.14 0c-.8 0-1.46-.74-1.46-1.64s.64-1.64 1.46-1.64c.82 0 1.48.74 1.46 1.64 0 .9-.64 1.64-1.46 1.64Z" />
-      </svg>
-      <span>{label}</span>
+      {content}
     </a>
   );
 }
@@ -324,28 +363,37 @@ export default function Home() {
   const [server, setServer] = useState("Todos");
   const [type, setType] = useState("Todos");
   const [itemCategory, setItemCategory] = useState("Todos");
+  const [sortMode, setSortMode] = useState("best");
+  const [bestPriceOnly, setBestPriceOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [reservedListingIds, setReservedListingIds] = useState<string[]>([]);
 
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+  const [reportedListing, setReportedListing] = useState<Listing | null>(null);
   const [buyerContactMethod, setBuyerContactMethod] = useState("Discord");
   const [buyerContact, setBuyerContact] = useState("");
   const [buyerDesired, setBuyerDesired] = useState("");
   const [buyerMessage, setBuyerMessage] = useState("");
+  const [reportReason, setReportReason] = useState("");
+  const [reportContact, setReportContact] = useState("");
 
   const [openedImage, setOpenedImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isSubmittingSale, setIsSubmittingSale] = useState(false);
   const [isSendingInterest, setIsSendingInterest] = useState(false);
+  const [isSendingReport, setIsSendingReport] = useState(false);
   const [isSubmittingBuyOrder, setIsSubmittingBuyOrder] = useState(false);
   const [isTurnstileReady, setIsTurnstileReady] = useState(false);
   const [saleCaptchaToken, setSaleCaptchaToken] = useState("");
   const [buyCaptchaToken, setBuyCaptchaToken] = useState("");
   const [interestCaptchaToken, setInterestCaptchaToken] = useState("");
+  const [reportCaptchaToken, setReportCaptchaToken] = useState("");
   const [saleCaptchaResetKey, setSaleCaptchaResetKey] = useState(0);
   const [buyCaptchaResetKey, setBuyCaptchaResetKey] = useState(0);
   const [interestCaptchaResetKey, setInterestCaptchaResetKey] = useState(0);
+  const [reportCaptchaResetKey, setReportCaptchaResetKey] = useState(0);
   const [isLocalCaptchaBypassed] = useState(
     () =>
       typeof window !== "undefined" &&
@@ -392,7 +440,22 @@ const text = {
     noImage: "Sem imagem",
     price: "Preço",
     available: "Disponível",
+    bestPrice: "Melhor preço",
+    bestPriceOnly: "Só melhor preço",
+    reserved: "Reservado",
+    sortBy: "Ordenar",
+    sortBest: "Melhor preço",
+    sortNewest: "Mais recente",
+    sortQuantity: "Quantidade",
+    sortServer: "Servidor",
+    stockTitle: "Stock de wons",
     interest: "Quero comprar",
+    reportListing: "Reportar anúncio",
+    reportReason: "O que está errado neste anúncio?",
+    reportContact: "O teu contacto (opcional)",
+    sendReport: "Enviar report",
+    reportSent: "Report enviado.",
+    reportMissing: "Preenche o motivo do report.",
     submitTitle: "Queres vender?",
     submitText:
       "Submete o teu item, conta ou wons. O teu contacto e preço pretendido ficam privados e só são visíveis para o administrador.",
@@ -460,7 +523,22 @@ const text = {
     noImage: "No image",
     price: "Price",
     available: "Available",
+    bestPrice: "Best price",
+    bestPriceOnly: "Best price only",
+    reserved: "Reserved",
+    sortBy: "Sort by",
+    sortBest: "Best price",
+    sortNewest: "Newest",
+    sortQuantity: "Quantity",
+    sortServer: "Server",
+    stockTitle: "Wons stock",
     interest: "I want to buy",
+    reportListing: "Report listing",
+    reportReason: "What is wrong with this listing?",
+    reportContact: "Your contact (optional)",
+    sendReport: "Send report",
+    reportSent: "Report sent.",
+    reportMissing: "Fill in the report reason.",
     submitTitle: "Want to sell?",
     submitText:
       "Submit your item, account or wons. Your contact and desired price stay private and are only visible to the admin.",
@@ -512,6 +590,88 @@ const text = {
     invalidImage: "Use a JPG, PNG or WebP image up to 4MB.",
     howItWorks: "How it works",
   },
+  es: {
+    hero: "Compra y vende en Metin2 con más seguridad.",
+    sub: "Anuncios de cuentas, objetos y wons con mediación manual.",
+    market: "Mercado",
+    sell: "Vender",
+    buyOrder: "Comprar",
+    search: "Buscar anuncio...",
+    allServers: "Todos los servidores",
+    chooseServer: "Elige el servidor",
+    allTypes: "Todos los tipos",
+    allItemCategories: "Todas las categorías",
+    itemCategory: "Categoría",
+    found: "anuncio(s) encontrados",
+    noImage: "Sin imagen",
+    price: "Precio",
+    available: "Disponible",
+    bestPrice: "Mejor precio",
+    bestPriceOnly: "Solo mejor precio",
+    reserved: "Reservado",
+    sortBy: "Ordenar",
+    sortBest: "Mejor precio",
+    sortNewest: "Más reciente",
+    sortQuantity: "Cantidad",
+    sortServer: "Servidor",
+    stockTitle: "Stock de wons",
+    interest: "Quiero comprar",
+    reportListing: "Reportar anuncio",
+    reportReason: "¿Qué está mal en este anuncio?",
+    reportContact: "Tu contacto (opcional)",
+    sendReport: "Enviar reporte",
+    reportSent: "Reporte enviado.",
+    reportMissing: "Rellena el motivo del reporte.",
+    submitTitle: "¿Quieres vender?",
+    submitText:
+      "Envía tu objeto, cuenta o wons. Tu contacto y precio deseado quedan privados y solo son visibles para el administrador.",
+    title: "Título",
+    quantity: "Cantidad",
+    sellerPrice: "Precio deseado por el vendedor",
+    sellerPricePerWon: "Precio por won",
+    sellerContact: "Nombre de Discord",
+    description: "Descripción",
+    imageRequired: "Imagen obligatoria para objetos y cuentas",
+    chooseImage: "Elegir imagen",
+    noFileSelected: "Ninguna imagen seleccionada",
+    sendSale: "Enviar para aprobación",
+    backMarket: "← Volver al mercado",
+    buyerContact: "Nombre de Discord",
+    contactMethod: "Contacto",
+    contactNotice: "Los contactos proporcionados deben ser Discord, Facebook o WhatsApp.",
+    asroldDiscord: "Discord del admin: Asrold#3891",
+    discordHint: "Discord: escribe solo el ID, sin #tag.",
+    whatsappHint: "WhatsApp: escribe el número con prefijo.",
+    facebookHint: "Facebook: escribe el nombre o enlace del perfil.",
+    message: "Mensaje",
+    sendRequest: "Enviar pedido",
+    close: "Cerrar",
+    previous: "Anterior",
+    next: "Siguiente",
+    fillRequired: "Rellena título, precio deseado y contacto.",
+    imageMissing: "La imagen es obligatoria para objetos y cuentas.",
+    saleSent: "Venta enviada para aprobación.",
+    requestSent: "Pedido enviado.",
+    contactMissing: "Rellena tu contacto.",
+    captcha: "Verificación de seguridad",
+    captchaMissing: "Completa la verificación de seguridad.",
+    captchaFailed: "La verificación de seguridad falló. Inténtalo de nuevo.",
+    loading: "Cargando...",
+    noListingsTitle: "No hay anuncios disponibles",
+    noListingsText: "Ajusta los filtros o vuelve más tarde.",
+    buyOrderTitle: "¿No encuentras lo que quieres?",
+    buyOrderText:
+      "Crea una compra. Cuando coincida con un anuncio, el admin recibe un aviso para acelerar la venta.",
+    desiredItem: "Qué quieres comprar",
+    maxPrice: "Precio máximo",
+    sendBuyOrder: "Crear compra",
+    buyOrderSent: "Compra enviada.",
+    buyOrderMissing: "Rellena lo que buscas, contacto y precio máximo.",
+    invalidPrice:
+      "Para Wons usa 0.01 a 0.99. Para objetos/cuentas usa hasta 5 dígitos.",
+    invalidImage: "Usa una imagen JPG, PNG o WebP de hasta 4MB.",
+    howItWorks: "Cómo funciona",
+  },
   de: {
     hero: "Kaufe und verkaufe in Metin2 mit mehr Sicherheit.",
     sub: "Anzeigen für Accounts, Items und Wons mit manueller Vermittlung.",
@@ -527,7 +687,22 @@ const text = {
     noImage: "Kein Bild",
     price: "Preis",
     available: "Verfügbar",
+    bestPrice: "Bester Preis",
+    bestPriceOnly: "Nur bester Preis",
+    reserved: "Reserviert",
+    sortBy: "Sortieren",
+    sortBest: "Bester Preis",
+    sortNewest: "Neueste",
+    sortQuantity: "Menge",
+    sortServer: "Server",
+    stockTitle: "Wons Bestand",
     interest: "Ich möchte kaufen",
+    reportListing: "Anzeige melden",
+    reportReason: "Was stimmt mit dieser Anzeige nicht?",
+    reportContact: "Dein Kontakt (optional)",
+    sendReport: "Meldung senden",
+    reportSent: "Meldung gesendet.",
+    reportMissing: "Gib den Grund für die Meldung ein.",
     submitTitle: "Möchtest du verkaufen?",
     submitText:
       "Reiche dein Item, deinen Account oder Wons ein. Dein Kontakt und Wunschpreis bleiben privat und sind nur für den Admin sichtbar.",
@@ -588,7 +763,22 @@ const text = {
     noImage: "Fără imagine",
     price: "Preț",
     available: "Disponibil",
+    bestPrice: "Cel mai bun preț",
+    bestPriceOnly: "Doar cel mai bun preț",
+    reserved: "Rezervat",
+    sortBy: "Sortează",
+    sortBest: "Cel mai bun preț",
+    sortNewest: "Cele mai noi",
+    sortQuantity: "Cantitate",
+    sortServer: "Server",
+    stockTitle: "Stock wons",
     interest: "Vreau să cumpăr",
+    reportListing: "Raportează anunțul",
+    reportReason: "Ce este greșit la acest anunț?",
+    reportContact: "Contactul tău (opțional)",
+    sendReport: "Trimite raport",
+    reportSent: "Raport trimis.",
+    reportMissing: "Completează motivul raportului.",
     submitTitle: "Vrei să vinzi?",
     submitText:
       "Trimite itemul, contul sau wons. Contactul și prețul dorit rămân private și sunt vizibile doar administratorului.",
@@ -652,7 +842,22 @@ const text = {
     noImage: "Görsel yok",
     price: "Fiyat",
     available: "Müsait",
+    bestPrice: "En iyi fiyat",
+    bestPriceOnly: "Sadece en iyi fiyat",
+    reserved: "Rezerve",
+    sortBy: "Sırala",
+    sortBest: "En iyi fiyat",
+    sortNewest: "En yeni",
+    sortQuantity: "Miktar",
+    sortServer: "Sunucu",
+    stockTitle: "Wons stoku",
     interest: "Satın almak istiyorum",
+    reportListing: "İlanı bildir",
+    reportReason: "Bu ilanda yanlış olan ne?",
+    reportContact: "İletişim bilgin (isteğe bağlı)",
+    sendReport: "Bildirimi gönder",
+    reportSent: "Bildirim gönderildi.",
+    reportMissing: "Bildirim nedenini doldur.",
     submitTitle: "Satmak ister misin?",
     submitText:
       "Itemini, hesabını veya wons miktarını gönder. İletişim bilgin ve istediğin fiyat gizli kalır, sadece admin tarafından görülür.",
@@ -730,6 +935,17 @@ const text = {
       sent: "Buy submitted.",
       missing: "Fill what you want, contact and max price.",
     },
+    es: {
+      nav: "Comprar",
+      title: "¿No encuentras lo que quieres?",
+      intro:
+        "Crea una compra. Cuando coincida con un anuncio, el admin recibe un aviso para acelerar la venta.",
+      desired: "Qué quieres comprar",
+      maxPrice: "Precio máximo",
+      send: "Crear compra",
+      sent: "Compra enviada.",
+      missing: "Rellena la cantidad, contacto y precio máximo.",
+    },
     de: {
       nav: "Kaufen",
       title: "Findest du nicht, was du suchst?",
@@ -773,6 +989,9 @@ const text = {
     en: {
       missingFields: "Missing fields",
     },
+    es: {
+      missingFields: "Campos obligatorios",
+    },
     de: {
       missingFields: "Fehlende Felder",
     },
@@ -788,7 +1007,7 @@ const text = {
     setIsLoadingListings(true);
     const { data, error } = await supabase
       .from("listings")
-      .select("id, title, description, server, type, price, status, image_url")
+      .select("id, title, description, server, type, price, status, image_url, created_at")
       .eq("is_active", true)
       .order("created_at", { ascending: false });
 
@@ -802,6 +1021,18 @@ const text = {
     setIsLoadingListings(false);
   }, []);
 
+  const fetchReservations = useCallback(async () => {
+    const response = await fetch("/api/listing-reservations");
+
+    if (!response.ok) return;
+
+    const result = (await response.json().catch(() => ({}))) as {
+      listingIds?: string[];
+    };
+
+    setReservedListingIds(result.listingIds || []);
+  }, []);
+
   const typeLabels = {
     pt: {
       Todos: "Todos os tipos",
@@ -813,6 +1044,12 @@ const text = {
       Todos: "All types",
       Item: "Items",
       Conta: "Accounts",
+      Wons: "Wons",
+    },
+    es: {
+      Todos: "Todos los tipos",
+      Item: "Objetos",
+      Conta: "Cuentas",
       Wons: "Wons",
     },
     de: {
@@ -844,6 +1081,7 @@ const text = {
       Alquimia: "Alquimia",
       Pet: "Pet",
       Luva: "Luva",
+      Talisma: "Talisma",
       Talisman: "Talisman",
       Pulseira: "Pulseira",
       Brincos: "Brincos",
@@ -858,11 +1096,27 @@ const text = {
       Alquimia: "Alchemy",
       Pet: "Pet",
       Luva: "Glove",
+      Talisma: "Talisman",
       Talisman: "Talisman",
       Pulseira: "Bracelet",
       Brincos: "Earrings",
       Colares: "Necklaces",
       Outro: "Other",
+    },
+    es: {
+      Todos: text.allItemCategories,
+      Elmo: "Casco",
+      Armadura: "Armadura",
+      Armas: "Armas",
+      Alquimia: "Alquimia",
+      Pet: "Pet",
+      Luva: "Guante",
+      Talisma: "Talismán",
+      Talisman: "Talismán",
+      Pulseira: "Pulsera",
+      Brincos: "Pendientes",
+      Colares: "Collares",
+      Outro: "Otro",
     },
     de: {
       Todos: text.allItemCategories,
@@ -872,6 +1126,7 @@ const text = {
       Alquimia: "Alchemie",
       Pet: "Pet",
       Luva: "Handschuh",
+      Talisma: "Talisman",
       Talisman: "Talisman",
       Pulseira: "Armband",
       Brincos: "Ohrringe",
@@ -886,6 +1141,7 @@ const text = {
       Alquimia: "Alchimie",
       Pet: "Pet",
       Luva: "Manusa",
+      Talisma: "Talisman",
       Talisman: "Talisman",
       Pulseira: "Bratara",
       Brincos: "Cercei",
@@ -901,6 +1157,7 @@ const text = {
       Pet: "Pet",
       Luva: "Eldiven",
       "Talismã": "Tilsim",
+      Talisma: "Tilsim",
       Pulseira: "Bilezik",
       Brincos: "Kupeler",
       Colares: "Kolyeler",
@@ -912,6 +1169,11 @@ const text = {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchListings();
   }, [fetchListings]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchReservations();
+  }, [fetchReservations]);
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -956,19 +1218,113 @@ const text = {
       const current = grouped.get(groupKey);
 
       if (!current) {
-        const next = { ...item, title: String(parseQuantity(item.title)), description: null };
+        const next = {
+          ...item,
+          title: String(parseQuantity(item.title)),
+          description: null,
+          group_listing_ids: [item.id],
+        };
         grouped.set(groupKey, next);
         visible.push(next);
         return;
       }
 
+      current.group_listing_ids = [...(current.group_listing_ids || []), item.id];
       current.title = String(
         parseQuantity(current.title) + parseQuantity(item.title)
       );
     });
 
-    return visible;
-  }, [filtered]);
+    const bestByServer = new Map<string, number>();
+
+    visible.forEach((item) => {
+      if (item.type !== "Wons") return;
+
+      const price = parseListingPrice(item.price);
+      const current = bestByServer.get(item.server);
+
+      if (price > 0 && (current === undefined || price < current)) {
+        bestByServer.set(item.server, price);
+      }
+    });
+
+    const filteredVisible = bestPriceOnly
+      ? visible.filter(
+          (item) =>
+            item.type !== "Wons" ||
+            parseListingPrice(item.price) === bestByServer.get(item.server)
+        )
+      : visible;
+
+    return filteredVisible.sort((a, b) => {
+      if (a.type === "Wons" && b.type !== "Wons") return -1;
+      if (a.type !== "Wons" && b.type === "Wons") return 1;
+
+      if (a.type === "Wons" && b.type === "Wons") {
+        if (sortMode === "quantity") {
+          return parseQuantity(b.title) - parseQuantity(a.title);
+        }
+
+        const serverCompare = formatServerLabel(a.server).localeCompare(
+          formatServerLabel(b.server)
+        );
+
+        if (sortMode === "server" && serverCompare !== 0) return serverCompare;
+        if (sortMode === "best" && serverCompare !== 0) return serverCompare;
+
+        return parseListingPrice(a.price) - parseListingPrice(b.price);
+      }
+
+      if (sortMode === "newest") {
+        return (
+          new Date(b.created_at || 0).getTime() -
+          new Date(a.created_at || 0).getTime()
+        );
+      }
+
+      return a.title.localeCompare(b.title);
+    });
+  }, [bestPriceOnly, filtered, sortMode]);
+
+  const bestWonPriceByServer = useMemo(() => {
+    const best = new Map<string, number>();
+
+    displayListings.forEach((item) => {
+      if (item.type !== "Wons") return;
+
+      const price = parseListingPrice(item.price);
+      const current = best.get(item.server);
+
+      if (price > 0 && (current === undefined || price < current)) {
+        best.set(item.server, price);
+      }
+    });
+
+    return best;
+  }, [displayListings]);
+
+  const wonStockByServer = useMemo(() => {
+    const stock = new Map<string, number>();
+
+    displayListings.forEach((item) => {
+      if (item.type !== "Wons") return;
+
+      stock.set(
+        item.server,
+        (stock.get(item.server) || 0) + parseQuantity(item.title)
+      );
+    });
+
+    return Array.from(stock.entries())
+      .map(([serverName, quantity]) => ({ serverName, quantity }))
+      .sort((a, b) => a.serverName.localeCompare(b.serverName));
+  }, [displayListings]);
+
+  function isReservedListing(item: Listing) {
+    const ids = item.group_listing_ids || [item.id];
+
+    return ids.some((id) => reservedListingIds.includes(id));
+  }
 
   const totalPages = Math.ceil(displayListings.length / itemsPerPage);
 
@@ -1050,7 +1406,12 @@ const text = {
     formData.append("description", cleanedSale.description);
     formData.append("server", cleanedSale.server);
     formData.append("type", cleanedSale.type);
-    formData.append("seller_expected_price", cleanedSale.seller_expected_price);
+    formData.append(
+      "seller_expected_price",
+      sale.type === "Wons"
+        ? normalizeCentPrice(cleanedSale.seller_expected_price)
+        : cleanedSale.seller_expected_price
+    );
     formData.append("seller_contact_method", sale.seller_contact_method);
     formData.append("seller_contact", cleanedSale.seller_contact);
 
@@ -1155,6 +1516,54 @@ const text = {
     setInterestCaptchaResetKey((key) => key + 1);
   }
 
+  async function sendReport() {
+    const cleanedReason = cleanMultiline(reportReason, 500);
+    const cleanedContact = cleanText(reportContact, 80);
+
+    const missingReportFields = [
+      !cleanedReason && text.reportReason,
+      shouldShowCaptcha && !reportCaptchaToken && text.captcha,
+    ].filter(Boolean) as string[];
+
+    if (!reportedListing || missingReportFields.length > 0) {
+      showMissingFields(missingReportFields);
+      return;
+    }
+
+    setIsSendingReport(true);
+    const response = await fetch("/api/listing-reports", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        captcha: reportCaptchaToken,
+        listing_id: reportedListing.id,
+        reason: cleanedReason,
+        reporter_contact: cleanedContact,
+      }),
+    });
+
+    if (!response.ok) {
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      setIsSendingReport(false);
+      setReportCaptchaToken("");
+      setReportCaptchaResetKey((key) => key + 1);
+      toast.error(result.error || text.captchaFailed);
+      return;
+    }
+
+    toast.success(text.reportSent);
+    setIsSendingReport(false);
+    setReportedListing(null);
+    setReportReason("");
+    setReportContact("");
+    setReportCaptchaToken("");
+    setReportCaptchaResetKey((key) => key + 1);
+  }
+
   async function submitBuyOrder() {
     const cleanedBuyOrder = {
       desired: cleanText(buyOrder.desired, quantityMaxLength),
@@ -1195,7 +1604,7 @@ const text = {
         desired: cleanedBuyOrder.desired,
         server: cleanedBuyOrder.server,
         type: cleanedBuyOrder.type,
-        max_price: cleanedBuyOrder.max_price,
+        max_price: normalizeCentPrice(cleanedBuyOrder.max_price),
         buyer_contact_method: buyOrder.buyer_contact_method,
         buyer_contact: cleanedBuyOrder.buyer_contact,
         message: cleanedBuyOrder.message,
@@ -1295,7 +1704,7 @@ const text = {
       />
 
       <header className="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/[0.82] backdrop-blur-xl">
-        <div className="mx-auto grid max-w-6xl gap-4 px-5 py-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
+        <div className="mx-auto grid max-w-6xl gap-4 px-5 py-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
           <button
             type="button"
             onClick={() => {
@@ -1310,22 +1719,32 @@ const text = {
             <p className="text-sm text-emerald-200/70">Metin2 Marketplace</p>
           </button>
 
-          <div className="flex justify-start md:justify-center">
-            <Link
-              href="/how-it-works"
-              className="rounded-2xl border border-emerald-300/40 bg-emerald-300 px-8 py-3 text-base font-black text-black shadow-xl shadow-emerald-950/20 hover:-translate-y-0.5 hover:bg-emerald-200"
-            >
-              {text.howItWorks}
-            </Link>
+          <div className="flex justify-start lg:justify-center">
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-black/20 p-1">
+              <Link
+                href="/how-it-works"
+                className="rounded-xl border border-emerald-300/40 bg-emerald-300 px-5 py-2.5 text-sm font-black text-black shadow-xl shadow-emerald-950/20 hover:-translate-y-0.5 hover:bg-emerald-200"
+              >
+                {text.howItWorks}
+              </Link>
+              <Link
+                href="/rules"
+                className="rounded-xl border border-white/10 bg-neutral-900 px-5 py-2.5 text-sm font-black text-white shadow-xl shadow-black/20 hover:-translate-y-0.5 hover:border-emerald-300/35"
+              >
+                Rules
+              </Link>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 md:justify-end">
-            <DiscordButton label="Asrold#3891" compact />
-            <DiscordButton
-              label="Join Discord server"
-              href="https://discord.gg/VrUFhSNtuE"
-              compact
-            />
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/20 p-1">
+              <DiscordButton label="Asrold#3891" compact disabled />
+              <DiscordButton
+                label="Join Discord server"
+                href="https://discord.gg/VrUFhSNtuE"
+                compact
+              />
+            </div>
             <div className="relative">
               <button
                 type="button"
@@ -1345,7 +1764,7 @@ const text = {
 
               {isLanguageMenuOpen && (
                 <div className="absolute right-0 top-12 z-50 grid gap-2 rounded-xl border border-white/10 bg-neutral-950 p-2 shadow-2xl shadow-black/40">
-                  {(["en", "pt", "de", "ro", "tr"] as Lang[]).map((l) => (
+                  {(["en", "es", "pt", "de", "ro", "tr"] as Lang[]).map((l) => (
                     <button
                       key={l}
                       type="button"
@@ -1471,7 +1890,64 @@ const text = {
                   ))}
                 </select>
               </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                <select
+                  value={sortMode}
+                  onChange={(e) => {
+                    setSortMode(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+                >
+                  <option value="best">
+                    {text.sortBy}: {text.sortBest}
+                  </option>
+                  <option value="newest">
+                    {text.sortBy}: {text.sortNewest}
+                  </option>
+                  <option value="quantity">
+                    {text.sortBy}: {text.sortQuantity}
+                  </option>
+                  <option value="server">
+                    {text.sortBy}: {text.sortServer}
+                  </option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBestPriceOnly((value) => !value);
+                    setCurrentPage(1);
+                  }}
+                  className={`rounded-xl border px-4 py-3 text-sm font-black transition ${
+                    bestPriceOnly
+                      ? "border-emerald-200/50 bg-emerald-300 text-black"
+                      : "border-white/10 bg-neutral-950/90 text-neutral-300 hover:border-emerald-300/35 hover:text-emerald-100"
+                  }`}
+                >
+                  {text.bestPriceOnly}
+                </button>
+              </div>
             </div>
+
+            {wonStockByServer.length > 0 && (
+              <div className="mb-6 rounded-2xl border border-white/10 bg-neutral-900/65 p-4 shadow-xl shadow-black/15">
+                <p className="mb-3 text-sm font-black text-neutral-200">
+                  {text.stockTitle}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {wonStockByServer.map((item) => (
+                    <span
+                      key={item.serverName}
+                      className="rounded-full border border-yellow-300/20 bg-yellow-300/10 px-3 py-1 text-sm font-bold text-yellow-100"
+                    >
+                      {formatServerLabel(item.serverName)}: {item.quantity}W
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="mb-5 flex items-end justify-between gap-4">
               <div>
@@ -1534,7 +2010,12 @@ const text = {
       </div>
     </div>
   ) : (
-    <div className="p-5">
+    <div className="relative p-5">
+      {parseListingPrice(item.price) === bestWonPriceByServer.get(item.server) && (
+        <span className="absolute right-8 top-8 z-10 rounded-full border border-emerald-200/35 bg-emerald-300 px-3 py-1 text-xs font-black text-black shadow-lg shadow-emerald-950/25">
+          {text.bestPrice}
+        </span>
+      )}
       <div className="rounded-2xl border border-yellow-500/25 bg-[radial-gradient(circle_at_top,rgba(250,204,21,0.22),rgba(234,179,8,0.08))] p-6 text-center shadow-inner shadow-yellow-900/20">
         <p className="text-lg font-black text-yellow-100">
           {formatServerLabel(item.server)}
@@ -1561,6 +2042,12 @@ const text = {
       {item.status || text.available}
     </span>
 
+    {isReservedListing(item) && (
+      <span className="mt-2 w-fit rounded-full border border-yellow-300/30 bg-yellow-300/10 px-3 py-1 text-xs font-bold text-yellow-200">
+        {text.reserved}
+      </span>
+    )}
+
     <h2 className="mt-4 text-lg font-bold leading-snug">
       {item.type === "Wons" ? `${item.title} W` : item.title}
     </h2>
@@ -1578,6 +2065,14 @@ const text = {
         className="mt-4 w-full rounded-xl bg-white px-4 py-3 text-sm font-bold text-black shadow-lg shadow-white/10 hover:-translate-y-0.5 hover:bg-neutral-200"
       >
         {text.interest}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setReportedListing(item)}
+        className="mt-2 w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-2.5 text-sm font-bold text-neutral-300 hover:border-red-300/35 hover:bg-red-500/10 hover:text-red-100"
+      >
+        {text.reportListing}
       </button>
     </div>
   </div>
@@ -2079,7 +2574,7 @@ const text = {
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900 p-6 shadow-2xl shadow-black/50">
             <h3 className="text-xl font-bold">{selectedListing.title}</h3>
             <p className="mt-1 text-sm text-neutral-400">
-              {formatServerLabel(selectedListing.server)} Â· {selectedListing.price}
+              {formatServerLabel(selectedListing.server)} - {selectedListing.price}
             </p>
 
             {selectedListing.type === "Wons" && (
@@ -2166,6 +2661,67 @@ const text = {
                   setBuyerDesired("");
                   setInterestCaptchaToken("");
                   setInterestCaptchaResetKey((key) => key + 1);
+                }}
+                className="flex-1 rounded-xl border border-white/10 bg-neutral-800 px-4 py-3 hover:bg-neutral-700"
+              >
+                {text.close}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reportedListing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-5 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900 p-6 shadow-2xl shadow-black/50">
+            <h3 className="text-xl font-bold">{text.reportListing}</h3>
+            <p className="mt-1 text-sm text-neutral-400">
+              {reportedListing.title} · {formatServerLabel(reportedListing.server)}
+            </p>
+
+            <textarea
+              placeholder={text.reportReason}
+              maxLength={500}
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              className="mt-5 min-h-28 w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-red-300/60 focus:ring-2 focus:ring-red-400/15"
+            />
+
+            <input
+              placeholder={text.reportContact}
+              maxLength={80}
+              value={reportContact}
+              onChange={(e) => setReportContact(e.target.value)}
+              className="mt-3 w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none placeholder:text-neutral-500 focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
+            />
+
+            {shouldShowCaptcha && (
+              <div className="mt-3 w-fit">
+                <TurnstileBox
+                  isReady={isTurnstileReady}
+                  resetKey={reportCaptchaResetKey}
+                  onToken={setReportCaptchaToken}
+                  onExpire={() => setReportCaptchaToken("")}
+                />
+              </div>
+            )}
+
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={sendReport}
+                disabled={isSendingReport}
+                className="flex-1 rounded-xl bg-red-200 px-4 py-3 font-bold text-black shadow-lg shadow-red-950/20 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSendingReport ? text.loading : text.sendReport}
+              </button>
+
+              <button
+                onClick={() => {
+                  setReportedListing(null);
+                  setReportReason("");
+                  setReportContact("");
+                  setReportCaptchaToken("");
+                  setReportCaptchaResetKey((key) => key + 1);
                 }}
                 className="flex-1 rounded-xl border border-white/10 bg-neutral-800 px-4 py-3 hover:bg-neutral-700"
               >

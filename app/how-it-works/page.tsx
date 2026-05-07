@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 
-type Lang = "en" | "pt" | "de" | "ro" | "tr";
+type Lang = "en" | "es" | "pt" | "de" | "ro" | "tr";
 
 const languageOptions: Record<Lang, { flagClass: string; label: string }> = {
   en: { flagClass: "flag-gb", label: "English" },
+  es: { flagClass: "flag-es", label: "Español" },
   pt: { flagClass: "flag-pt", label: "Português" },
   de: { flagClass: "flag-de", label: "Deutsch" },
   ro: { flagClass: "flag-ro", label: "Română" },
@@ -34,6 +35,28 @@ const content = {
       ["I want to buy", "Send interest for a specific listing. For grouped wons, the admin sees every seller in that group."],
       ["Admin mediation", "The admin checks contacts, confirms matches, updates quantities."],
       ["Support", "Use Discord, the Discord server, or live chat if you need help before buying or selling."],
+    ],
+  },
+  es: {
+    title: "Cómo funciona",
+    eyebrow: "Mediación manual para intercambios más seguros",
+    intro:
+      "Asrold Market es un mercado mediado manualmente para cuentas, objetos y wons de Metin2. Compradores y vendedores pueden mostrar interés libremente, pero el administrador confirma el match real antes de que cualquier venta cuente.",
+    back: "Volver al mercado",
+    steps: [
+      "El vendedor envía un objeto, cuenta o wons.",
+      "El administrador revisa la solicitud y publica el anuncio.",
+      "El comprador hace clic en Comprar o Quiero comprar y el admin contacta contigo.",
+      "El administrador confirma vendido o cancelado.",
+      "Solo las ventas confirmadas cuentan para el stock.",
+    ],
+    cards: [
+      ["Mercado", "Explora anuncios aprobados. Los wons con el mismo servidor y precio público se agrupan para que la cantidad disponible sea fácil de leer."],
+      ["Vender", "Envía lo que quieres vender. Tu contacto y precio deseado permanecen privados hasta que el admin revise el anuncio."],
+      ["Comprar", "Crea una solicitud pública de compra de wons cuando no encuentras la cantidad que necesitas."],
+      ["Quiero comprar", "Envía interés por un anuncio específico. Para wons agrupados, el admin ve todos los vendedores de ese grupo."],
+      ["Mediación del admin", "El admin verifica contactos, confirma matches y actualiza cantidades."],
+      ["Soporte", "Usa Discord, el servidor de Discord o el chat en vivo si necesitas ayuda antes de comprar o vender."],
     ],
   },
   pt: {
@@ -150,7 +173,7 @@ export default function HowItWorks() {
           </Link>
 
           <div className="mt-2 flex items-center gap-2 md:mt-4">
-            {(["en", "pt", "de", "ro", "tr"] as Lang[]).map((option) => (
+            {(["en", "es", "pt", "de", "ro", "tr"] as Lang[]).map((option) => (
               <button
                 key={option}
                 type="button"

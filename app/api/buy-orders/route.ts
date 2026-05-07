@@ -1,14 +1,30 @@
 import { getSupabaseAdmin } from "../../../lib/supabase-admin";
+import { checkRateLimit } from "../../../lib/rate-limit";
+import { blockIfMaintenance } from "../../../lib/site-settings";
 import {
   cleanMultiline,
   cleanText,
   formatContact,
   isValidCentPrice,
+  normalizeCentPrice,
   verifyTurnstile,
 } from "../../../lib/public-submit";
 
 export async function POST(request: Request) {
   const supabaseAdmin = getSupabaseAdmin();
+  const rateLimit = checkRateLimit(request, "buy-orders");
+
+  if (!rateLimit.ok) {
+    return Response.json(
+      { error: `Too many requests. Try again in ${rateLimit.retryAfter}s.` },
+      { status: 429 }
+    );
+  }
+
+  const maintenanceResponse = await blockIfMaintenance(supabaseAdmin);
+
+  if (maintenanceResponse) return maintenanceResponse;
+
   const body = (await request.json().catch(() => ({}))) as Record<
     string,
     unknown
@@ -41,7 +57,7 @@ export async function POST(request: Request) {
     desired,
     server,
     type: "Wons",
-    max_price: `${maxPrice}€`,
+    max_price: `${normalizeCentPrice(maxPrice)}€`,
     buyer_contact: formatContact(buyerContactMethod, buyerContact),
     message,
     status: "Open",

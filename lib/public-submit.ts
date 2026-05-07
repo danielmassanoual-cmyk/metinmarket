@@ -21,7 +21,13 @@ export function isPositiveNumber(value: string) {
 }
 
 export function isValidCentPrice(value: string) {
-  return /^0\.\d{2}$/.test(value) && isPositiveNumber(value);
+  return /^0\.\d{1,2}$/.test(value) && isPositiveNumber(value);
+}
+
+export function normalizeCentPrice(value: string) {
+  if (!isValidCentPrice(value)) return value;
+
+  return Number(value).toFixed(2);
 }
 
 export function isValidItemPrice(value: string) {

@@ -43,6 +43,7 @@ type InterestRequest = {
   buyer_contact: string;
   message: string | null;
   status: string | null;
+  admin_note?: string | null;
   listings: {
     id: string;
     title: string | null;
@@ -78,7 +79,38 @@ type SaleRecord = {
   listing_server: string | null;
   buyer_contact: string | null;
   created_at: string | null;
+  admin_note?: string | null;
 };
+
+type ListingReport = {
+  id: string;
+  listing_id: string | null;
+  reason: string;
+  reporter_contact: string | null;
+  status: string | null;
+  created_at: string | null;
+  admin_note?: string | null;
+  listings: {
+    id: string;
+    title: string | null;
+    server: string | null;
+    type: string | null;
+    price: string | null;
+    status: string | null;
+    is_active: boolean | null;
+  } | null;
+};
+
+type MaintenanceSettings = {
+  enabled: boolean;
+  message: string;
+};
+
+type NoteTarget = {
+  table: "sale_records" | "interest_requests" | "listing_reports";
+  id: string;
+  note: string;
+} | null;
 
 type ListingEditData = Partial<
   Pick<Listing, "title" | "description" | "server" | "type" | "price" | "status">
@@ -100,6 +132,12 @@ function formatServerLabel(value: string | null | undefined) {
 
 function formatEuro(value: number) {
   return `${value.toFixed(2)}€`;
+}
+
+function formatPriceInput(value: string | number | null | undefined) {
+  const parsed = parseMoney(value);
+
+  return parsed ? parsed.toFixed(2) : "";
 }
 
 function parseQuantity(value: string | number | null | undefined) {
@@ -166,11 +204,22 @@ export default function Admin() {
   const [requests, setRequests] = useState<InterestRequest[]>([]);
   const [buyOrders, setBuyOrders] = useState<BuyOrder[]>([]);
   const [saleRecords, setSaleRecords] = useState<SaleRecord[]>([]);
+  const [reports, setReports] = useState<ListingReport[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceSettings>({
+    enabled: false,
+    message: "Submissions are temporarily closed. Please try again later.",
+  });
   const [openedImage, setOpenedImage] = useState<string | null>(null);
+  const [noteTarget, setNoteTarget] = useState<NoteTarget>(null);
+  const [noteDraft, setNoteDraft] = useState("");
   const [publicPrices, setPublicPrices] = useState<Record<string, string>>({});
   const [matchQuantities, setMatchQuantities] = useState<Record<string, string>>(
     {}
   );
+  const [matchPrices, setMatchPrices] = useState<Record<string, string>>({});
+  const [matchSellerSelections, setMatchSellerSelections] = useState<
+    Record<string, string>
+  >({});
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<ListingEditData>({});
   const [isFetching, setIsFetching] = useState(false);
@@ -246,11 +295,38 @@ export default function Admin() {
       .select("*")
       .order("created_at", { ascending: false });
 
+    const { data: reportRows } = await supabase
+      .from("listing_reports")
+      .select(
+        `*, listings (id, title, server, type, price, status, is_active)`
+      )
+      .order("created_at", { ascending: false });
+
+    const { data: settingsRow, error: settingsError } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "maintenance")
+      .maybeSingle();
+
+    const maintenanceValue = settingsRow?.value as
+      | MaintenanceSettings
+      | null
+      | undefined;
+
     setSubmissions(subs || []);
     setListings(list || []);
     setRequests(reqs || []);
     setBuyOrders(orders || []);
     setSaleRecords(sales || []);
+    setReports(reportRows || []);
+    if (!settingsError && maintenanceValue) {
+      setMaintenance({
+        enabled: Boolean(maintenanceValue.enabled),
+        message:
+          maintenanceValue.message ||
+          "Submissions are temporarily closed. Please try again later.",
+      });
+    }
     setIsFetching(false);
   }, [requireSession]);
 
@@ -285,6 +361,7 @@ export default function Admin() {
     setRequests([]);
     setBuyOrders([]);
     setSaleRecords([]);
+    setReports([]);
   }
 
   async function approve(item: SaleSubmission) {
@@ -428,6 +505,11 @@ export default function Admin() {
       return;
     }
 
+    if (parseMoney(matchPrices[quantityKey] || listing.price) <= 0) {
+      alert("Please enter a valid sold price.");
+      return;
+    }
+
     if (soldQuantity > availableQuantity) {
       alert("Sold quantity can not be higher than the listing quantity.");
       return;
@@ -448,7 +530,8 @@ export default function Admin() {
 
     const remainingQuantity = Math.max(availableQuantity - soldQuantity, 0);
     const profitPerWon =
-      parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
+      parseMoney(matchPrices[quantityKey] || listing.price) -
+      parseMoney(listing.seller_expected_price);
     const saleProfit = profitPerWon * soldQuantity;
     const nextProfit = getRecordedProfitForListing(listing.id) + saleProfit;
     const listingUpdate =
@@ -510,6 +593,11 @@ export default function Admin() {
       delete next[quantityKey];
       return next;
     });
+    setMatchPrices((current) => {
+      const next = { ...current };
+      delete next[quantityKey];
+      return next;
+    });
     setActionLoading(null);
     fetchAll();
   }
@@ -547,13 +635,18 @@ export default function Admin() {
     }
 
     const quantityKey = `request-${request.id}-${listing.id}`;
+    const selectedSellerId = matchSellerSelections[quantityKey];
+    const selectedSeller =
+      (selectedSellerId &&
+        sellerMatches.find((seller) => seller.id === selectedSellerId)) ||
+      listing;
+    const saleSellerMatches =
+      listing.type === "Wons" ? [selectedSeller] : sellerMatches;
+    const soldPrice = matchPrices[quantityKey] || listing.price;
     const requestedQuantity = parseQuantity(request.desired);
     const availableQuantity =
       listing.type === "Wons"
-        ? sellerMatches.reduce(
-            (total, item) => total + parseQuantity(item.title),
-            0
-          )
+        ? parseQuantity(selectedSeller.title)
         : parseQuantity(listing.title);
     const soldQuantity =
       listing.type === "Wons"
@@ -562,6 +655,11 @@ export default function Admin() {
 
     if (!soldQuantity || soldQuantity <= 0) {
       alert("Please enter a valid quantity sold.");
+      return;
+    }
+
+    if (parseMoney(matchPrices[quantityKey] || listing.price) <= 0) {
+      alert("Please enter a valid sold price.");
       return;
     }
 
@@ -583,7 +681,11 @@ export default function Admin() {
       !confirm(
         `Confirm sale of ${soldQuantity}${
           listing.type === "Wons" ? "W" : ""
-        } for this buyer request from ${sellerMatches.length} seller(s)?`
+        } for this buyer request from ${
+          listing.type === "Wons"
+            ? selectedSeller.seller_contact || selectedSeller.title
+            : `${sellerMatches.length} seller(s)`
+        }?`
       )
     ) {
       return;
@@ -593,7 +695,7 @@ export default function Admin() {
 
     let remainingToSell = soldQuantity;
 
-    for (const sellerListing of sellerMatches) {
+    for (const sellerListing of saleSellerMatches) {
       if (remainingToSell <= 0) break;
 
       const sellerQuantity =
@@ -610,7 +712,7 @@ export default function Admin() {
           ? Math.max(sellerQuantity - quantityFromSeller, 0)
           : 0;
       const profitPerUnit =
-        parseMoney(sellerListing.price) -
+        parseMoney(soldPrice) -
         parseMoney(sellerListing.seller_expected_price);
       const saleProfit = profitPerUnit * quantityFromSeller;
       const nextProfit =
@@ -671,6 +773,16 @@ export default function Admin() {
     }
 
     setMatchQuantities((current) => {
+      const next = { ...current };
+      delete next[quantityKey];
+      return next;
+    });
+    setMatchPrices((current) => {
+      const next = { ...current };
+      delete next[quantityKey];
+      return next;
+    });
+    setMatchSellerSelections((current) => {
       const next = { ...current };
       delete next[quantityKey];
       return next;
@@ -796,6 +908,125 @@ export default function Admin() {
     fetchAll();
   }
 
+  async function saveAdminNote(
+    table: "sale_records" | "interest_requests" | "listing_reports",
+    id: string,
+    note: string
+  ) {
+    if (!(await requireSession())) return;
+
+    setActionLoading(`note-${table}-${id}`);
+    const { error } = await supabase
+      .from(table)
+      .update({ admin_note: note.trim() || null })
+      .eq("id", id);
+
+    if (error) {
+      setActionLoading(null);
+      alert(
+        error.message.includes("site_settings")
+          ? "Maintenance settings table is missing. Run supabase-site-settings.sql in Supabase first."
+          : error.message
+      );
+      return;
+    }
+
+    setActionLoading(null);
+    setNoteTarget(null);
+    setNoteDraft("");
+    fetchAll();
+  }
+
+  function openNoteModal(
+    table: "sale_records" | "interest_requests" | "listing_reports",
+    id: string,
+    currentNote?: string | null
+  ) {
+    setNoteTarget({ table, id, note: currentNote || "" });
+    setNoteDraft(currentNote || "");
+  }
+
+  async function saveMaintenance(next: MaintenanceSettings) {
+    if (!(await requireSession())) return;
+
+    setActionLoading("maintenance");
+    const { error } = await supabase
+      .from("site_settings")
+      .update({
+        value: next,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("key", "maintenance");
+
+    if (error) {
+      setActionLoading(null);
+      alert(error.message);
+      return;
+    }
+
+    setMaintenance(next);
+    setActionLoading(null);
+  }
+
+  function exportSalesCsv() {
+    const rows = [
+      [
+        "date",
+        "source",
+        "listing",
+        "server",
+        "quantity",
+        "profit",
+        "buyer_contact",
+        "admin_note",
+      ],
+      ...saleRecords.map((sale) => [
+        sale.created_at || "",
+        sale.source_type || "",
+        sale.listing_title || "",
+        sale.listing_server || "",
+        String(sale.quantity || ""),
+        String(sale.profit || ""),
+        sale.buyer_contact || "",
+        sale.admin_note || "",
+      ]),
+    ];
+    const csv = rows
+      .map((row) =>
+        row
+          .map((cell) => `"${String(cell).replaceAll('"', '""')}"`)
+          .join(",")
+      )
+      .join("\n");
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" })
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `asrold-sales-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function resolveReport(id: string) {
+    if (!(await requireSession())) return;
+    setActionLoading(`resolve-report-${id}`);
+    await supabase
+      .from("listing_reports")
+      .update({ status: "Resolved" })
+      .eq("id", id);
+    setActionLoading(null);
+    fetchAll();
+  }
+
+  async function deleteReport(id: string) {
+    if (!(await requireSession())) return;
+    setActionLoading(`delete-report-${id}`);
+    await supabase.from("listing_reports").delete().eq("id", id);
+    setActionLoading(null);
+    fetchAll();
+  }
+
   async function saveEdit(id: string) {
     if (!(await requireSession())) return;
 
@@ -913,10 +1144,12 @@ export default function Admin() {
     const status = req.status?.toLowerCase();
     return status !== "sold" && status !== "cancelled" && req.listings?.id;
   });
+  const activeMatches = activeBuyOrderMatches + openRequestMatches.length;
   const pagedSaleRecords = getPageItems(saleRecords, adminPage);
   const pagedBuyOrders = getPageItems(buyOrders, adminPage);
   const pagedRequestMatches = getPageItems(openRequestMatches, adminPage);
   const pagedRequests = getPageItems(requests, adminPage);
+  const pagedReports = getPageItems(reports, adminPage);
   const pagedSubmissions = getPageItems(submissions, adminPage);
   const pagedListings = getPageItems(listings, adminPage);
   const currentAdminTotal =
@@ -928,9 +1161,11 @@ export default function Admin() {
           ? openRequestMatches.length
           : adminTab === "requests"
             ? requests.length
-            : adminTab === "submissions"
-              ? submissions.length
-              : listings.length;
+            : adminTab === "reports"
+              ? reports.length
+              : adminTab === "submissions"
+                ? submissions.length
+                : listings.length;
   const currentAdminPages = Math.max(
     1,
     Math.ceil(currentAdminTotal / adminPageSize)
@@ -1003,6 +1238,13 @@ export default function Admin() {
 
           <div className="flex gap-3">
             <button
+              onClick={exportSalesCsv}
+              className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold hover:bg-white/5"
+            >
+              Export CSV
+            </button>
+
+            <button
               onClick={fetchAll}
               disabled={isFetching}
               className="rounded-xl border border-white/10 px-4 py-2 text-sm font-bold hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1026,13 +1268,61 @@ export default function Admin() {
           </div>
         </header>
 
-        <section className="mb-8 grid gap-4 md:grid-cols-3 xl:grid-cols-8">
-          <SummaryCard label="Vendas efetuadas" value={totalSales} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
-          <SummaryCard label="Lucro total" value={formatEuro(totalProfit)} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
-          <SummaryCard label="Wons vendidos" value={totalWonsSold} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
+        <section className="mb-8 rounded-2xl border border-white/10 bg-neutral-900/90 p-5 shadow-xl shadow-black/15">
+          <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+            <div>
+              <div className="mb-2 flex flex-wrap items-center gap-3">
+                <h2 className="text-lg font-black">Site status</h2>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-bold ${
+                    maintenance.enabled
+                      ? "bg-red-500/15 text-red-200"
+                      : "bg-emerald-500/15 text-emerald-200"
+                  }`}
+                >
+                  {maintenance.enabled ? "Submissions closed" : "Open"}
+                </span>
+              </div>
+              <textarea
+                value={maintenance.message}
+                onChange={(e) =>
+                  setMaintenance({ ...maintenance, message: e.target.value })
+                }
+                className="min-h-20 w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 text-sm outline-none focus:border-emerald-300/60"
+              />
+            </div>
+
+            <button
+              onClick={() =>
+                saveMaintenance({
+                  ...maintenance,
+                  enabled: !maintenance.enabled,
+                })
+              }
+              disabled={actionLoading === "maintenance"}
+              className={`rounded-xl px-5 py-3 text-sm font-black disabled:cursor-not-allowed disabled:opacity-60 ${
+                maintenance.enabled
+                  ? "bg-emerald-300 text-black"
+                  : "bg-red-300 text-black"
+              }`}
+            >
+              {actionLoading === "maintenance"
+                ? "Saving..."
+                : maintenance.enabled
+                  ? "Open submissions"
+                  : "Close submissions"}
+            </button>
+          </div>
+        </section>
+
+        <section className="mb-8 grid gap-4 md:grid-cols-3 xl:grid-cols-9">
+          <SummaryCard label="Completed sales" value={totalSales} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
+          <SummaryCard label="Total profit" value={formatEuro(totalProfit)} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
+          <SummaryCard label="Wons sold" value={totalWonsSold} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
           <SummaryCard label="Buy orders" value={buyOrders.length} active={adminTab === "buy"} onClick={() => openAdminTab("buy")} />
-          <SummaryCard label="Matches" value={activeBuyOrderMatches} active={adminTab === "matches"} onClick={() => openAdminTab("matches")} />
-          <SummaryCard label="Pedidos recebidos" value={requests.length} active={adminTab === "requests"} onClick={() => openAdminTab("requests")} />
+          <SummaryCard label="Matches" value={activeMatches} active={adminTab === "matches"} onClick={() => openAdminTab("matches")} />
+          <SummaryCard label="Received requests" value={requests.length} active={adminTab === "requests"} onClick={() => openAdminTab("requests")} />
+          <SummaryCard label="Reports" value={reports.length} active={adminTab === "reports"} onClick={() => openAdminTab("reports")} />
           <SummaryCard label="Pending submissions" value={submissions.length} active={adminTab === "submissions"} onClick={() => openAdminTab("submissions")} />
           <SummaryCard label="Listings" value={activeListings.length + inactiveListings.length} active={adminTab === "listings"} onClick={() => openAdminTab("listings")} />
         </section>
@@ -1040,7 +1330,7 @@ export default function Admin() {
         {adminTab === "sales" && (
         <section className="mb-10">
           <SectionTitle
-            title="Vendas efetuadas"
+            title="Completed sales"
             description="Confirmed sales. Removing one reverses its quantity and profit."
           />
 
@@ -1095,15 +1385,36 @@ export default function Admin() {
                     </div>
                   )}
 
-                  <button
-                    onClick={() => removeSaleRecord(sale)}
-                    disabled={actionLoading === `remove-sale-${sale.id}`}
-                    className="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {actionLoading === `remove-sale-${sale.id}`
-                      ? "Removing..."
-                      : "Remover venda"}
-                  </button>
+                  {sale.admin_note && (
+                    <p className="mt-3 rounded-xl border border-sky-300/20 bg-sky-300/10 p-3 text-sm text-sky-100">
+                      <span className="font-bold">Admin note:</span>{" "}
+                      {sale.admin_note}
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      onClick={() =>
+                        openNoteModal("sale_records", sale.id, sale.admin_note)
+                      }
+                      disabled={
+                        actionLoading === `note-sale_records-${sale.id}`
+                      }
+                      className="rounded-xl border border-white/10 bg-neutral-800 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Admin note
+                    </button>
+
+                    <button
+                      onClick={() => removeSaleRecord(sale)}
+                      disabled={actionLoading === `remove-sale-${sale.id}`}
+                      className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {actionLoading === `remove-sale-${sale.id}`
+                        ? "Removing..."
+                        : "Remove sale"}
+                    </button>
+                  </div>
                 </article>
               );
               })}
@@ -1191,10 +1502,13 @@ export default function Admin() {
                             const quantityKey = `${order.id}-${listing.id}`;
                             const selectedQuantity =
                               matchQuantities[quantityKey] || order.desired;
+                            const selectedPrice =
+                              matchPrices[quantityKey] ||
+                              formatPriceInput(listing.price);
                             const soldQuantity = parseQuantity(selectedQuantity);
                             const availableQuantity = parseQuantity(listing.title);
                             const profitPerWon =
-                              parseMoney(listing.price) -
+                              parseMoney(selectedPrice) -
                               parseMoney(listing.seller_expected_price);
                             const matchProfit = profitPerWon * soldQuantity;
 
@@ -1207,8 +1521,8 @@ export default function Admin() {
                                   <div>
                                     <p className="font-bold">{listing.title}W</p>
                                     <p className="text-xs text-neutral-400">
-                                      Available: {availableQuantity}W Â· Sell:{" "}
-                                      {listing.price} Â· Buy:{" "}
+                                      Available: {availableQuantity}W - Sell:{" "}
+                                      {listing.price} - Buy:{" "}
                                       {listing.seller_expected_price || "-"}
                                     </p>
                                   </div>
@@ -1223,55 +1537,78 @@ export default function Admin() {
                                   />
                                 </div>
 
-                                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max={Math.min(
-                                      availableQuantity,
-                                      parseQuantity(order.desired)
-                                    )}
-                                    value={selectedQuantity}
-                                    onChange={(e) =>
-                                      setMatchQuantities({
-                                        ...matchQuantities,
-                                        [quantityKey]: e.target.value,
-                                      })
-                                    }
-                                    className="rounded-lg border border-white/10 bg-black px-3 py-2 outline-none focus:border-emerald-300/60"
-                                  />
+                                <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max={Math.min(
+                                        availableQuantity,
+                                        parseQuantity(order.desired)
+                                      )}
+                                      value={selectedQuantity}
+                                      onChange={(e) =>
+                                        setMatchQuantities({
+                                          ...matchQuantities,
+                                          [quantityKey]: e.target.value,
+                                        })
+                                      }
+                                      className="min-h-11 rounded-lg border border-white/10 bg-black px-3 py-2 outline-none focus:border-emerald-300/60"
+                                    />
 
-                                  <button
-                                    onClick={() =>
-                                      markBuyOrderSold(order, listing)
-                                    }
-                                    disabled={
-                                      actionLoading ===
+                                    <div className="relative min-w-[8.5rem]">
+                                      <input
+                                        type="number"
+                                        min="0.01"
+                                        step="0.01"
+                                        value={selectedPrice}
+                                        onChange={(e) =>
+                                          setMatchPrices({
+                                            ...matchPrices,
+                                            [quantityKey]: e.target.value,
+                                          })
+                                        }
+                                        className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                                      />
+                                      <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
+                                        €
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-3 flex flex-wrap justify-end gap-3">
+                                    <button
+                                      onClick={() =>
+                                        markBuyOrderSold(order, listing)
+                                      }
+                                      disabled={
+                                        actionLoading ===
+                                        `match-sold-${quantityKey}`
+                                      }
+                                      className="min-h-11 min-w-24 rounded-lg bg-green-500 px-4 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {actionLoading ===
                                       `match-sold-${quantityKey}`
-                                    }
-                                    className="rounded-lg bg-green-500 px-3 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {actionLoading ===
-                                    `match-sold-${quantityKey}`
-                                      ? "Saving..."
-                                      : "Vendido"}
-                                  </button>
+                                        ? "Saving..."
+                                        : "Vendido"}
+                                    </button>
 
-                                  <button
-                                    onClick={() =>
-                                      cancelBuyOrderMatch(order, listing)
-                                    }
-                                    disabled={
-                                      actionLoading ===
+                                    <button
+                                      onClick={() =>
+                                        cancelBuyOrderMatch(order, listing)
+                                      }
+                                      disabled={
+                                        actionLoading ===
+                                        `match-cancel-${quantityKey}`
+                                      }
+                                      className="min-h-11 min-w-24 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {actionLoading ===
                                       `match-cancel-${quantityKey}`
-                                    }
-                                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {actionLoading ===
-                                    `match-cancel-${quantityKey}`
-                                      ? "Saving..."
-                                      : "Cancelado"}
-                                  </button>
+                                        ? "Saving..."
+                                        : "Cancelado"}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -1307,6 +1644,13 @@ export default function Admin() {
                   if (!listing) return null;
 
                   const quantityKey = `request-${req.id}-${listing.id}`;
+                  const selectedSellerId = matchSellerSelections[quantityKey];
+                  const selectedSeller =
+                    (selectedSellerId &&
+                      sellerMatches.find(
+                        (seller) => seller.id === selectedSellerId
+                      )) ||
+                    listing;
                   const groupQuantity = sellerMatches.reduce(
                     (total, item) => total + parseQuantity(item.title),
                     0
@@ -1316,28 +1660,17 @@ export default function Admin() {
                     req.desired ||
                     String(groupQuantity || parseQuantity(listing.title)) ||
                     "1";
+                  const selectedPrice =
+                    matchPrices[quantityKey] || formatPriceInput(listing.price);
                   const soldQuantity = parseQuantity(selectedQuantity);
                   const availableQuantity =
                     listing.type === "Wons"
-                      ? groupQuantity
+                      ? parseQuantity(selectedSeller.title)
                       : parseQuantity(listing.title);
-                  let remainingEstimate = soldQuantity;
-                  const requestProfit = sellerMatches.reduce((total, item) => {
-                    if (remainingEstimate <= 0) return total;
-                    const sellerQuantity =
-                      item.type === "Wons" ? parseQuantity(item.title) : 1;
-                    const quantityFromSeller =
-                      item.type === "Wons"
-                        ? Math.min(sellerQuantity, remainingEstimate)
-                        : 1;
-                    remainingEstimate -= quantityFromSeller;
-                    return (
-                      total +
-                      (parseMoney(item.price) -
-                        parseMoney(item.seller_expected_price)) *
-                        quantityFromSeller
-                    );
-                  }, 0);
+                  const requestProfit =
+                    (parseMoney(selectedPrice) -
+                      parseMoney(selectedSeller.seller_expected_price)) *
+                    soldQuantity;
 
                   return (
                     <article
@@ -1355,16 +1688,16 @@ export default function Admin() {
                           </div>
                           <h3 className="font-bold">
                             {listing.type === "Wons"
-                              ? `${availableQuantity}W grouped`
+                              ? `${groupQuantity}W grouped`
                               : listing.title}
                           </h3>
                           <p className="text-sm text-neutral-400">
-                            Sell: {listing.price} · Sellers:{" "}
+                            Sell: {selectedPrice}€ · Sellers:{" "}
                             {sellerMatches.length}
                           </p>
                           <p className="mt-1 text-sm text-neutral-400">
                             Desired: {req.desired || "-"}
-                            {req.max_price ? ` Â· Max: ${req.max_price}` : ""}
+                            {req.max_price ? ` - Max: ${req.max_price}` : ""}
                           </p>
                         </div>
 
@@ -1406,47 +1739,90 @@ export default function Admin() {
                         </p>
                       )}
 
-                      <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-                        <input
-                          type="number"
-                          min="1"
-                          max={
-                            listing.type === "Wons"
-                              ? Math.min(
-                                  availableQuantity,
-                                  parseQuantity(req.desired)
-                                )
-                              : 1
-                          }
-                          value={selectedQuantity}
-                          onChange={(e) =>
-                            setMatchQuantities({
-                              ...matchQuantities,
-                              [quantityKey]: e.target.value,
-                            })
-                          }
-                          className="rounded-lg border border-white/10 bg-black px-3 py-2 outline-none focus:border-emerald-300/60"
-                        />
+                      <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_7rem_9rem]">
+                          {listing.type === "Wons" && (
+                            <select
+                              value={selectedSeller.id}
+                              onChange={(e) =>
+                                setMatchSellerSelections({
+                                  ...matchSellerSelections,
+                                  [quantityKey]: e.target.value,
+                                })
+                              }
+                              className="min-h-11 min-w-0 rounded-lg border border-white/10 bg-black px-3 py-2 outline-none [color-scheme:dark] focus:border-emerald-300/60"
+                            >
+                              {sellerMatches.map((seller, index) => (
+                                <option key={seller.id} value={seller.id}>
+                                  Seller {index + 1} · {seller.title}W ·{" "}
+                                  {seller.seller_contact || "-"}
+                                </option>
+                              ))}
+                            </select>
+                          )}
 
-                        <button
-                          onClick={() => markInterestSold(req)}
-                          disabled={actionLoading === `request-sold-${req.id}`}
-                          className="rounded-lg bg-green-500 px-3 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {actionLoading === `request-sold-${req.id}`
-                            ? "Saving..."
-                            : "Vendido"}
-                        </button>
+                          <input
+                            type="number"
+                            min="1"
+                            max={
+                              listing.type === "Wons"
+                                ? Math.min(
+                                    availableQuantity,
+                                    parseQuantity(req.desired)
+                                  )
+                                : 1
+                            }
+                            value={selectedQuantity}
+                            onChange={(e) =>
+                              setMatchQuantities({
+                                ...matchQuantities,
+                                [quantityKey]: e.target.value,
+                              })
+                            }
+                            className="min-h-11 rounded-lg border border-white/10 bg-black px-3 py-2 outline-none focus:border-emerald-300/60"
+                          />
 
-                        <button
-                          onClick={() => cancelInterestRequest(req.id)}
-                          disabled={actionLoading === `request-cancel-${req.id}`}
-                          className="rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {actionLoading === `request-cancel-${req.id}`
-                            ? "Saving..."
-                            : "Cancelado"}
-                        </button>
+                          <div className="relative min-w-[8.5rem]">
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={selectedPrice}
+                              onChange={(e) =>
+                                setMatchPrices({
+                                  ...matchPrices,
+                                  [quantityKey]: e.target.value,
+                                })
+                              }
+                              className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                            />
+                            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
+                              €
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap justify-end gap-3">
+                          <button
+                            onClick={() => markInterestSold(req)}
+                            disabled={actionLoading === `request-sold-${req.id}`}
+                            className="min-h-11 min-w-24 rounded-lg bg-green-500 px-4 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {actionLoading === `request-sold-${req.id}`
+                              ? "Saving..."
+                              : "Vendido"}
+                          </button>
+
+                          <button
+                            onClick={() => cancelInterestRequest(req.id)}
+                            disabled={actionLoading === `request-cancel-${req.id}`}
+                            className="min-h-11 min-w-24 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {actionLoading === `request-cancel-${req.id}`
+                              ? "Saving..."
+                              : "Cancelado"}
+                          </button>
+                        </div>
                       </div>
                     </article>
                   );
@@ -1483,7 +1859,7 @@ export default function Admin() {
                         {req.listings?.title || "Removed listing"}
                       </h3>
                       <p className="text-sm text-neutral-400">
-                          {formatServerLabel(req.listings?.server)} Â·{" "}
+                          {formatServerLabel(req.listings?.server)} -{" "}
                         {req.listings?.price || "-"}
                       </p>
                     </div>
@@ -1509,7 +1885,139 @@ export default function Admin() {
                       </p>
                     )}
                   </div>
+
+                  {req.admin_note && (
+                    <p className="mt-3 rounded-xl border border-sky-300/20 bg-sky-300/10 p-3 text-sm text-sky-100">
+                      <span className="font-bold">Admin note:</span>{" "}
+                      {req.admin_note}
+                    </p>
+                  )}
+
+                  <button
+                    onClick={() =>
+                      openNoteModal(
+                        "interest_requests",
+                        req.id,
+                        req.admin_note
+                      )
+                    }
+                    disabled={
+                      actionLoading === `note-interest_requests-${req.id}`
+                    }
+                    className="mt-3 rounded-xl border border-white/10 bg-neutral-800 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Admin note
+                  </button>
                 </div>
+              ))}
+            </div>
+          )}
+        </section>
+        )}
+
+        {adminTab === "reports" && (
+        <section className="mb-10">
+          <SectionTitle
+            title="Listing reports"
+            description="Public reports about suspicious or incorrect listings."
+          />
+
+          {isFetching && reports.length === 0 ? (
+            <LoadingGrid />
+          ) : reports.length === 0 ? (
+            <Empty
+              title="No reports"
+              message="Reports from the marketplace will appear here."
+            />
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {pagedReports.map((report) => (
+                <article
+                  key={report.id}
+                  className="rounded-2xl border border-white/10 bg-neutral-900 p-5 transition hover:-translate-y-0.5 hover:border-white/20"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-4">
+                    <div>
+                      <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                        <Badge>{report.status || "Open"}</Badge>
+                        {report.listings?.server && (
+                          <Badge>{formatServerLabel(report.listings.server)}</Badge>
+                        )}
+                        {report.listings?.type && <Badge>{report.listings.type}</Badge>}
+                      </div>
+                      <h3 className="font-bold">
+                        {report.listings?.title || "Removed listing"}
+                      </h3>
+                      <p className="text-sm text-neutral-400">
+                        {report.created_at
+                          ? new Date(report.created_at).toLocaleString()
+                          : "-"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-neutral-950 p-4 text-sm">
+                    <p className="font-bold text-neutral-200">Reason</p>
+                    <p className="mt-2 whitespace-pre-wrap text-neutral-300">
+                      {report.reason}
+                    </p>
+
+                    {report.reporter_contact && (
+                      <p className="mt-3">
+                        <span className="text-neutral-400">Reporter:</span>{" "}
+                        <strong>{report.reporter_contact}</strong>
+                      </p>
+                    )}
+                  </div>
+
+                  {report.admin_note && (
+                    <p className="mt-3 rounded-xl border border-sky-300/20 bg-sky-300/10 p-3 text-sm text-sky-100">
+                      <span className="font-bold">Admin note:</span>{" "}
+                      {report.admin_note}
+                    </p>
+                  )}
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <button
+                      onClick={() =>
+                        openNoteModal(
+                          "listing_reports",
+                          report.id,
+                          report.admin_note
+                        )
+                      }
+                      disabled={
+                        actionLoading === `note-listing_reports-${report.id}`
+                      }
+                      className="rounded-xl border border-white/10 bg-neutral-800 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Admin note
+                    </button>
+
+                    <button
+                      onClick={() => resolveReport(report.id)}
+                      disabled={
+                        actionLoading === `resolve-report-${report.id}` ||
+                        report.status === "Resolved"
+                      }
+                      className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {actionLoading === `resolve-report-${report.id}`
+                        ? "Resolving..."
+                        : "Mark resolved"}
+                    </button>
+
+                    <button
+                      onClick={() => deleteReport(report.id)}
+                      disabled={actionLoading === `delete-report-${report.id}`}
+                      className="rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {actionLoading === `delete-report-${report.id}`
+                        ? "Deleting..."
+                        : "Delete"}
+                    </button>
+                  </div>
+                </article>
               ))}
             </div>
           )}
@@ -1908,6 +2416,50 @@ export default function Admin() {
             alt="Expanded image"
             className="max-h-[90vh] max-w-[90vw] rounded-2xl object-contain"
           />
+        </div>
+      )}
+
+      {noteTarget && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-5 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-neutral-900 p-6 shadow-2xl shadow-black/50">
+            <h2 className="text-xl font-black">Private admin note</h2>
+            <p className="mt-1 text-sm text-neutral-400">
+              This note is only visible in the admin panel.
+            </p>
+
+            <textarea
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              maxLength={600}
+              className="mt-4 min-h-40 w-full rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none focus:border-emerald-300/60"
+            />
+
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={() =>
+                  saveAdminNote(noteTarget.table, noteTarget.id, noteDraft)
+                }
+                disabled={
+                  actionLoading === `note-${noteTarget.table}-${noteTarget.id}`
+                }
+                className="flex-1 rounded-xl bg-emerald-300 px-4 py-3 font-bold text-black disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {actionLoading === `note-${noteTarget.table}-${noteTarget.id}`
+                  ? "Saving..."
+                  : "Save note"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setNoteTarget(null);
+                  setNoteDraft("");
+                }}
+                className="flex-1 rounded-xl border border-white/10 bg-neutral-800 px-4 py-3 font-bold hover:bg-neutral-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

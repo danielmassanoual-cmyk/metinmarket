@@ -1,16 +1,32 @@
 import { getSupabaseAdmin } from "../../../lib/supabase-admin";
+import { checkRateLimit } from "../../../lib/rate-limit";
+import { blockIfMaintenance } from "../../../lib/site-settings";
 import {
   cleanMultiline,
   cleanText,
   formatContact,
   isValidCentPrice,
   isValidItemPrice,
+  normalizeCentPrice,
   validateImage,
   verifyTurnstile,
 } from "../../../lib/public-submit";
 
 export async function POST(request: Request) {
   const supabaseAdmin = getSupabaseAdmin();
+  const rateLimit = checkRateLimit(request, "sale-submissions", 4);
+
+  if (!rateLimit.ok) {
+    return Response.json(
+      { error: `Too many requests. Try again in ${rateLimit.retryAfter}s.` },
+      { status: 429 }
+    );
+  }
+
+  const maintenanceResponse = await blockIfMaintenance(supabaseAdmin);
+
+  if (maintenanceResponse) return maintenanceResponse;
+
   const formData = await request.formData();
   const captcha = await verifyTurnstile(
     cleanText(formData.get("captcha"), 2000),
@@ -97,7 +113,9 @@ export async function POST(request: Request) {
     description,
     server,
     type,
-    seller_expected_price: `${sellerExpectedPrice}€`,
+    seller_expected_price: `${
+      type === "Wons" ? normalizeCentPrice(sellerExpectedPrice) : sellerExpectedPrice
+    }€`,
     seller_contact: formatContact(sellerContactMethod, sellerContact),
     image_url: imageUrl,
     status: "Pendente",
