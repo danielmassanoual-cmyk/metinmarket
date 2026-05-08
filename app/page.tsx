@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import toast, { Toaster } from "react-hot-toast";
-import { supabase } from "../lib/supabase";
 
 type Lang = "pt" | "en" | "es" | "de" | "ro" | "tr";
 type View = "market" | "sell" | "buy";
@@ -1059,19 +1058,19 @@ const text = {
 
   const fetchListings = useCallback(async () => {
     setIsLoadingListings(true);
-    const { data, error } = await supabase
-      .from("listings")
-      .select("id, title, description, server, type, price, status, image_url, created_at")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
+    const response = await fetch("/api/listings");
 
-    if (error) {
-      toast.error(error.message);
+    if (!response.ok) {
+      toast.error("Could not load listings.");
       setIsLoadingListings(false);
       return;
     }
 
-    setListings(data || []);
+    const result = (await response.json().catch(() => ({}))) as {
+      listings?: Listing[];
+    };
+
+    setListings(result.listings || []);
     setIsLoadingListings(false);
   }, []);
 
