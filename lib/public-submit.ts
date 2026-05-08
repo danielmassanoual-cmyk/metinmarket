@@ -1,5 +1,10 @@
 const maxImageSizeBytes = 4 * 1024 * 1024;
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
+const imageExtensionsByType: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 
 export function cleanText(value: FormDataEntryValue | null, maxLength: number) {
   return String(value || "")
@@ -51,6 +56,36 @@ export function validateImage(file: File | null) {
   return null;
 }
 
+export function getImageExtension(file: File) {
+  return imageExtensionsByType[file.type] || "webp";
+}
+
+export function validateImageSignature(file: File, bytes: ArrayBuffer) {
+  const header = new Uint8Array(bytes.slice(0, 12));
+
+  if (file.type === "image/jpeg") {
+    return header[0] === 0xff && header[1] === 0xd8
+      ? null
+      : "Invalid JPG image.";
+  }
+
+  if (file.type === "image/png") {
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    return png.every((byte, index) => header[index] === byte)
+      ? null
+      : "Invalid PNG image.";
+  }
+
+  if (file.type === "image/webp") {
+    const riff = String.fromCharCode(...header.slice(0, 4));
+    const webp = String.fromCharCode(...header.slice(8, 12));
+
+    return riff === "RIFF" && webp === "WEBP" ? null : "Invalid WebP image.";
+  }
+
+  return "Use a JPG, PNG or WebP image up to 4MB.";
+}
+
 export async function verifyTurnstile(token: string, request?: Request) {
   const host = request?.headers.get("host") || "";
   const forwardedHost = request?.headers.get("x-forwarded-host") || "";
@@ -64,7 +99,6 @@ export async function verifyTurnstile(token: string, request?: Request) {
   if (
     process.env.NODE_ENV !== "production" ||
     process.env.DISABLE_CAPTCHA === "true" ||
-    process.env.NEXT_PUBLIC_DISABLE_CAPTCHA === "true" ||
     isLocalRequest
   ) {
     return { ok: true };
@@ -83,6 +117,8 @@ export async function verifyTurnstile(token: string, request?: Request) {
   const formData = new FormData();
   formData.append("secret", secret);
   formData.append("response", token);
+  const ip = request?.headers.get("cf-connecting-ip");
+  if (ip) formData.append("remoteip", ip);
 
   const response = await fetch(
     "https://challenges.cloudflare.com/turnstile/v0/siteverify",

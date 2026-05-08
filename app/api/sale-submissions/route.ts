@@ -5,10 +5,12 @@ import {
   cleanMultiline,
   cleanText,
   formatContact,
+  getImageExtension,
   isValidCentPrice,
   isValidItemPrice,
   normalizeCentPrice,
   validateImage,
+  validateImageSignature,
   verifyTurnstile,
 } from "../../../lib/public-submit";
 
@@ -89,11 +91,18 @@ export async function POST(request: Request) {
   let imageUrl: string | null = null;
 
   if (imageFile && imageFile.size > 0) {
-    const fileExt = imageFile.name.split(".").pop() || "webp";
+    const imageBytes = await imageFile.arrayBuffer();
+    const signatureError = validateImageSignature(imageFile, imageBytes);
+
+    if (signatureError) {
+      return Response.json({ error: signatureError }, { status: 400 });
+    }
+
+    const fileExt = getImageExtension(imageFile);
     const filePath = `submissions/${Date.now()}-${crypto.randomUUID()}.${fileExt}`;
     const { error: uploadError } = await supabaseAdmin.storage
       .from("listing-images")
-      .upload(filePath, await imageFile.arrayBuffer(), {
+      .upload(filePath, imageBytes, {
         contentType: imageFile.type,
       });
 

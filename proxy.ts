@@ -1,34 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { verifyAdminSession } from "./lib/admin-auth";
 
 const adminCookieName = "asrold_admin_gate";
-
-function toBase64Url(bytes: ArrayBuffer) {
-  const binary = String.fromCharCode(...new Uint8Array(bytes));
-
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
-}
-
-async function verifyAdminSession(cookieValue: string | undefined, adminKey: string) {
-  if (!cookieValue) return false;
-
-  const [expiresAtRaw, signature] = cookieValue.split(".");
-  const expiresAt = Number(expiresAtRaw);
-
-  if (!expiresAt || !signature || Date.now() > expiresAt) {
-    return false;
-  }
-
-  const encoder = new TextEncoder();
-  const data = encoder.encode(`${expiresAt}.${adminKey}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  const expected = toBase64Url(digest);
-
-  return signature === expected;
-}
 
 export async function proxy(request: NextRequest) {
   const adminKey = process.env.ADMIN_ACCESS_KEY;

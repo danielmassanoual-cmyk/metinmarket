@@ -292,62 +292,85 @@ export default function Admin() {
     return true;
   }, []);
 
+  const adminAction = useCallback(
+    async (payload: Record<string, unknown>) => {
+      const { data } = await supabase.auth.getSession();
+
+      if (
+        !data.session ||
+        data.session.user.email?.toLowerCase() !== allowedAdminEmail.toLowerCase()
+      ) {
+        setSession(null);
+        throw new Error("Your admin session has expired. Please sign in again.");
+      }
+
+      const response = await fetch("/api/admin-actions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${data.session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(result.error || "Admin action failed.");
+      }
+    },
+    []
+  );
+
   const fetchAll = useCallback(async () => {
-    if (!(await requireSession())) return;
+    const { data } = await supabase.auth.getSession();
+
+    if (
+      !data.session ||
+      data.session.user.email?.toLowerCase() !== allowedAdminEmail.toLowerCase()
+    ) {
+      setSession(null);
+      alert("Your admin session has expired. Please sign in again.");
+      return;
+    }
+
     setIsFetching(true);
 
-    const { data: subs } = await supabase
-      .from("sale_submissions")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const response = await fetch("/api/admin-data", {
+      headers: {
+        Authorization: `Bearer ${data.session.access_token}`,
+      },
+    });
+    const result = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      submissions?: SaleSubmission[];
+      listings?: Listing[];
+      requests?: InterestRequest[];
+      buyOrders?: BuyOrder[];
+      saleRecords?: SaleRecord[];
+      reports?: ListingReport[];
+      maintenance?: MaintenanceSettings | null;
+    };
 
-    const { data: list } = await supabase
-      .from("listings")
-      .select("*")
-      .order("created_at", { ascending: false });
+    if (!response.ok) {
+      setIsFetching(false);
+      alert(result.error || "Could not load admin data.");
+      return;
+    }
 
-    const { data: reqs } = await supabase
-      .from("interest_requests")
-      .select(
-        `*, listings (id, title, server, type, price, seller_expected_price, profit, status, is_active)`
-      )
-      .order("created_at", { ascending: false });
-
-    const { data: orders } = await supabase
-      .from("buy_orders")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    const { data: sales } = await supabase
-      .from("sale_records")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    const { data: reportRows } = await supabase
-      .from("listing_reports")
-      .select(
-        `*, listings (id, title, server, type, price, status, is_active)`
-      )
-      .order("created_at", { ascending: false });
-
-    const { data: settingsRow, error: settingsError } = await supabase
-      .from("site_settings")
-      .select("value")
-      .eq("key", "maintenance")
-      .maybeSingle();
-
-    const maintenanceValue = settingsRow?.value as
+    const maintenanceValue = result.maintenance as
       | MaintenanceSettings
       | null
       | undefined;
 
-    setSubmissions(subs || []);
-    setListings(list || []);
-    setRequests(reqs || []);
-    setBuyOrders(orders || []);
-    setSaleRecords(sales || []);
-    setReports(reportRows || []);
-    if (!settingsError && maintenanceValue) {
+    setSubmissions(result.submissions || []);
+    setListings(result.listings || []);
+    setRequests(result.requests || []);
+    setBuyOrders(result.buyOrders || []);
+    setSaleRecords(result.saleRecords || []);
+    setReports(result.reports || []);
+    if (maintenanceValue) {
       setMaintenance({
         enabled: Boolean(maintenanceValue.enabled),
         message:
@@ -356,7 +379,7 @@ export default function Admin() {
       });
     }
     setIsFetching(false);
-  }, [requireSession]);
+  }, []);
 
   useEffect(() => {
     if (isAllowedAdmin) {
@@ -403,27 +426,17 @@ export default function Admin() {
     }
 
     setActionLoading(`approve-${item.id}`);
-    const { error } = await supabase.from("listings").insert({
-      title: item.title,
-      description: item.description,
-      server: item.server,
-      type: item.type,
-      price: `${publicPrice}‚€`,
-      seller_expected_price: item.seller_expected_price,
-      profit: 0,
-      image_url: item.image_url,
-      seller_contact: item.seller_contact,
-      status: "Available",
-      is_active: true,
-    });
-
-    if (error) {
+    try {
+      await adminAction({
+        action: "approveSubmission",
+        id: item.id,
+        publicPrice,
+      });
+    } catch (error) {
       setActionLoading(null);
-      alert(error.message);
+      alert(error instanceof Error ? error.message : "Could not approve.");
       return;
     }
-
-    await supabase.from("sale_submissions").delete().eq("id", item.id);
     setActionLoading(null);
     fetchAll();
   }
@@ -432,50 +445,13 @@ export default function Admin() {
     if (!(await requireSession())) return;
     if (!confirm("Reject this submission?")) return;
     setActionLoading(`reject-${id}`);
-    await supabase.from("sale_submissions").delete().eq("id", id);
+    try {
+      await adminAction({ action: "deleteSubmission", id });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not reject.");
+    }
     setActionLoading(null);
     fetchAll();
-  }
-
-  async function recordSale({
-    listing,
-    sourceType,
-    sourceId,
-    quantity,
-    profit,
-    buyerContact,
-  }: {
-    listing: Listing;
-    sourceType: string;
-    sourceId?: string | null;
-    quantity: number;
-    profit: number;
-    buyerContact?: string | null;
-  }) {
-    const { error } = await supabase.from("sale_records").insert({
-      listing_id: listing.id,
-      source_type: sourceType,
-      source_id: sourceId || null,
-      quantity,
-      profit,
-      listing_title: listing.title,
-      listing_server: listing.server,
-      buyer_contact: buyerContact || null,
-    });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
-  function getRecordedProfitForListing(listingId: string, excludeSaleId?: string) {
-    return saleRecords.reduce((total, record) => {
-      if (record.listing_id !== listingId || record.id === excludeSaleId) {
-        return total;
-      }
-
-      return total + parseMoney(record.profit);
-    }, 0);
   }
 
   async function markSold(id: string) {
@@ -483,34 +459,12 @@ export default function Admin() {
     const listing = listings.find((item) => item.id === id);
     if (!listing) return;
 
-    const quantity = listing.type === "Wons" ? parseQuantity(listing.title) : 1;
-    const profitPerUnit =
-      parseMoney(listing.price) - parseMoney(listing.seller_expected_price);
-    const profit = profitPerUnit * quantity;
-    const nextProfit = getRecordedProfitForListing(listing.id) + profit;
-
     setActionLoading(`sold-${id}`);
-    const { error } = await supabase
-      .from("listings")
-      .update({ status: "Sold", is_active: false, profit: nextProfit })
-      .eq("id", id);
-
-    if (error) {
-      setActionLoading(null);
-      alert(error.message);
-      return;
-    }
-
     try {
-      await recordSale({
-        listing,
-        sourceType: "manual",
-        quantity,
-        profit,
-      });
+      await adminAction({ action: "markListingSold", id });
     } catch (error) {
       setActionLoading(null);
-      alert(error instanceof Error ? error.message : "Could not record sale.");
+      alert(error instanceof Error ? error.message : "Could not mark as sold.");
       return;
     }
 
@@ -556,63 +510,18 @@ export default function Admin() {
       return;
     }
 
-    const remainingQuantity = Math.max(availableQuantity - soldQuantity, 0);
-    const profitPerWon =
-      parseMoney(matchPrices[quantityKey] || listing.price) -
-      parseMoney(listing.seller_expected_price);
-    const saleProfit = profitPerWon * soldQuantity;
-    const nextProfit = getRecordedProfitForListing(listing.id) + saleProfit;
-    const listingUpdate =
-      remainingQuantity > 0
-        ? {
-            title: String(remainingQuantity),
-            profit: nextProfit,
-            status: "Available",
-            is_active: true,
-          }
-        : {
-            title: "0",
-            profit: nextProfit,
-            status: "Sold",
-            is_active: false,
-          };
-
     setActionLoading(`match-sold-${quantityKey}`);
-
-    const { error: listingError } = await supabase
-      .from("listings")
-      .update(listingUpdate)
-      .eq("id", listing.id);
-
-    if (listingError) {
-      setActionLoading(null);
-      alert(listingError.message);
-      return;
-    }
-
     try {
-      await recordSale({
-        listing,
-        sourceType: "buy_order",
-        sourceId: order.id,
+      await adminAction({
+        action: "markBuyOrderSold",
+        orderId: order.id,
+        listingId: listing.id,
         quantity: soldQuantity,
-        profit: saleProfit,
-        buyerContact: order.buyer_contact,
+        soldPrice: matchPrices[quantityKey] || listing.price,
       });
     } catch (error) {
       setActionLoading(null);
-      alert(error instanceof Error ? error.message : "Could not record sale.");
-      return;
-    }
-
-    const { error: orderError } = await supabase
-      .from("buy_orders")
-      .update({ status: "Sold" })
-      .eq("id", order.id);
-
-    if (orderError) {
-      setActionLoading(null);
-      alert(orderError.message);
+      alert(error instanceof Error ? error.message : "Could not confirm sale.");
       return;
     }
 
@@ -636,15 +545,10 @@ export default function Admin() {
 
     const quantityKey = `${order.id}-${listing.id}`;
     setActionLoading(`match-cancel-${quantityKey}`);
-    const { error } = await supabase
-      .from("buy_orders")
-      .update({ status: "Cancelled" })
-      .eq("id", order.id);
-
-    if (error) {
-      setActionLoading(null);
-      alert(error.message);
-      return;
+    try {
+      await adminAction({ action: "cancelBuyOrder", id: order.id });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not cancel match.");
     }
 
     setActionLoading(null);
@@ -668,8 +572,6 @@ export default function Admin() {
       (selectedSellerId &&
         sellerMatches.find((seller) => seller.id === selectedSellerId)) ||
       listing;
-    const saleSellerMatches =
-      listing.type === "Wons" ? [selectedSeller] : sellerMatches;
     const soldPrice = matchPrices[quantityKey] || listing.price;
     const requestedQuantity = parseQuantity(request.desired);
     const availableQuantity =
@@ -720,83 +622,17 @@ export default function Admin() {
     }
 
     setActionLoading(`request-sold-${request.id}`);
-
-    let remainingToSell = soldQuantity;
-
-    for (const sellerListing of saleSellerMatches) {
-      if (remainingToSell <= 0) break;
-
-      const sellerQuantity =
-        sellerListing.type === "Wons" ? parseQuantity(sellerListing.title) : 1;
-      const quantityFromSeller =
-        sellerListing.type === "Wons"
-          ? Math.min(sellerQuantity, remainingToSell)
-          : 1;
-
-      if (!quantityFromSeller) continue;
-
-      const remainingQuantity =
-        sellerListing.type === "Wons"
-          ? Math.max(sellerQuantity - quantityFromSeller, 0)
-          : 0;
-      const profitPerUnit =
-        parseMoney(soldPrice) -
-        parseMoney(sellerListing.seller_expected_price);
-      const saleProfit = profitPerUnit * quantityFromSeller;
-      const nextProfit =
-        getRecordedProfitForListing(sellerListing.id) + saleProfit;
-      const listingUpdate =
-        sellerListing.type === "Wons" && remainingQuantity > 0
-          ? {
-              title: String(remainingQuantity),
-              profit: nextProfit,
-              status: "Available",
-              is_active: true,
-            }
-          : {
-              title: sellerListing.type === "Wons" ? "0" : sellerListing.title,
-              profit: nextProfit,
-              status: "Sold",
-              is_active: false,
-            };
-
-      const { error: listingError } = await supabase
-        .from("listings")
-        .update(listingUpdate)
-        .eq("id", sellerListing.id);
-
-      if (listingError) {
-        setActionLoading(null);
-        alert(listingError.message);
-        return;
-      }
-
-      try {
-        await recordSale({
-          listing: sellerListing,
-          sourceType: "buyer_request",
-          sourceId: request.id,
-          quantity: quantityFromSeller,
-          profit: saleProfit,
-          buyerContact: request.buyer_contact,
-        });
-      } catch (error) {
-        setActionLoading(null);
-        alert(error instanceof Error ? error.message : "Could not record sale.");
-        return;
-      }
-
-      remainingToSell -= quantityFromSeller;
-    }
-
-    const { error: requestError } = await supabase
-      .from("interest_requests")
-      .update({ status: "Sold" })
-      .eq("id", request.id);
-
-    if (requestError) {
+    try {
+      await adminAction({
+        action: "markInterestSold",
+        requestId: request.id,
+        sellerId: selectedSeller.id,
+        quantity: soldQuantity,
+        soldPrice,
+      });
+    } catch (error) {
       setActionLoading(null);
-      alert(requestError.message);
+      alert(error instanceof Error ? error.message : "Could not confirm sale.");
       return;
     }
 
@@ -824,15 +660,10 @@ export default function Admin() {
     if (!confirm("Cancel this buyer request?")) return;
 
     setActionLoading(`request-cancel-${id}`);
-    const { error } = await supabase
-      .from("interest_requests")
-      .update({ status: "Cancelled" })
-      .eq("id", id);
-
-    if (error) {
-      setActionLoading(null);
-      alert(error.message);
-      return;
+    try {
+      await adminAction({ action: "cancelInterestRequest", id });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not cancel request.");
     }
 
     setActionLoading(null);
@@ -849,40 +680,12 @@ export default function Admin() {
       return;
     }
 
-    const restoredQuantity =
-      listing.type === "Wons"
-        ? parseQuantity(listing.title) + record.quantity
-        : parseQuantity(listing.title) || record.quantity;
-    const nextProfit = Math.max(
-      getRecordedProfitForListing(listing.id, record.id),
-      0
-    );
-
     setActionLoading(`remove-sale-${record.id}`);
-    const { error: listingError } = await supabase
-      .from("listings")
-      .update({
-        title: listing.type === "Wons" ? String(restoredQuantity) : listing.title,
-        profit: nextProfit,
-        status: "Available",
-        is_active: true,
-      })
-      .eq("id", listing.id);
-
-    if (listingError) {
+    try {
+      await adminAction({ action: "removeSaleRecord", id: record.id });
+    } catch (error) {
       setActionLoading(null);
-      alert(listingError.message);
-      return;
-    }
-
-    const { error: saleError } = await supabase
-      .from("sale_records")
-      .delete()
-      .eq("id", record.id);
-
-    if (saleError) {
-      setActionLoading(null);
-      alert(saleError.message);
+      alert(error instanceof Error ? error.message : "Could not remove sale.");
       return;
     }
 
@@ -893,7 +696,7 @@ export default function Admin() {
   async function deactivate(id: string) {
     if (!(await requireSession())) return;
     setActionLoading(`deactivate-${id}`);
-    await supabase.from("listings").update({ is_active: false }).eq("id", id);
+    await adminAction({ action: "setListingActive", id, isActive: false });
     setActionLoading(null);
     fetchAll();
   }
@@ -902,10 +705,12 @@ export default function Admin() {
     if (!(await requireSession())) return;
 
     setActionLoading(`reactivate-${id}`);
-    await supabase
-      .from("listings")
-      .update({ is_active: true, status: "Available" })
-      .eq("id", id);
+    await adminAction({
+      action: "setListingActive",
+      id,
+      isActive: true,
+      status: "Available",
+    });
 
     setActionLoading(null);
     fetchAll();
@@ -915,7 +720,7 @@ export default function Admin() {
     if (!(await requireSession())) return;
     if (!confirm("Delete this listing permanently?")) return;
     setActionLoading(`delete-listing-${id}`);
-    await supabase.from("listings").delete().eq("id", id);
+    await adminAction({ action: "deleteListing", id });
     setActionLoading(null);
     fetchAll();
   }
@@ -923,7 +728,7 @@ export default function Admin() {
   async function deleteRequest(id: string) {
     if (!(await requireSession())) return;
     setActionLoading(`delete-request-${id}`);
-    await supabase.from("interest_requests").delete().eq("id", id);
+    await adminAction({ action: "deleteInterestRequest", id });
     setActionLoading(null);
     fetchAll();
   }
@@ -931,7 +736,7 @@ export default function Admin() {
   async function deleteBuyOrder(id: string) {
     if (!(await requireSession())) return;
     setActionLoading(`delete-buy-order-${id}`);
-    await supabase.from("buy_orders").delete().eq("id", id);
+    await adminAction({ action: "deleteBuyOrder", id });
     setActionLoading(null);
     fetchAll();
   }
@@ -944,17 +749,16 @@ export default function Admin() {
     if (!(await requireSession())) return;
 
     setActionLoading(`note-${table}-${id}`);
-    const { error } = await supabase
-      .from(table)
-      .update({ admin_note: note.trim() || null })
-      .eq("id", id);
-
-    if (error) {
+    try {
+      await adminAction({ action: "saveAdminNote", table, id, note });
+    } catch (error) {
       setActionLoading(null);
       alert(
-        error.message.includes("site_settings")
+        error instanceof Error && error.message.includes("site_settings")
           ? "Maintenance settings table is missing. Run supabase-site-settings.sql in Supabase first."
-          : error.message
+          : error instanceof Error
+            ? error.message
+            : "Could not save note."
       );
       return;
     }
@@ -978,17 +782,11 @@ export default function Admin() {
     if (!(await requireSession())) return;
 
     setActionLoading("maintenance");
-    const { error } = await supabase
-      .from("site_settings")
-      .update({
-        value: next,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("key", "maintenance");
-
-    if (error) {
+    try {
+      await adminAction({ action: "saveMaintenance", value: next });
+    } catch (error) {
       setActionLoading(null);
-      alert(error.message);
+      alert(error instanceof Error ? error.message : "Could not save maintenance.");
       return;
     }
 
@@ -1039,10 +837,7 @@ export default function Admin() {
   async function resolveReport(id: string) {
     if (!(await requireSession())) return;
     setActionLoading(`resolve-report-${id}`);
-    await supabase
-      .from("listing_reports")
-      .update({ status: "Resolved" })
-      .eq("id", id);
+    await adminAction({ action: "resolveReport", id });
     setActionLoading(null);
     fetchAll();
   }
@@ -1050,7 +845,7 @@ export default function Admin() {
   async function deleteReport(id: string) {
     if (!(await requireSession())) return;
     setActionLoading(`delete-report-${id}`);
-    await supabase.from("listing_reports").delete().eq("id", id);
+    await adminAction({ action: "deleteReport", id });
     setActionLoading(null);
     fetchAll();
   }
@@ -1059,21 +854,20 @@ export default function Admin() {
     if (!(await requireSession())) return;
 
     setActionLoading(`save-${id}`);
-    const { error } = await supabase
-      .from("listings")
-      .update({
+    try {
+      await adminAction({
+        action: "saveListingEdit",
+        id,
         title: editData.title,
         description: editData.description,
         server: editData.server,
         type: editData.type,
         price: editData.price,
         status: editData.status,
-      })
-      .eq("id", id);
-
-    if (error) {
+      });
+    } catch (error) {
       setActionLoading(null);
-      alert(error.message);
+      alert(error instanceof Error ? error.message : "Could not save listing.");
       return;
     }
 
@@ -1160,21 +954,23 @@ export default function Admin() {
     (total, item) => total + parseMoney(item.profit),
     0
   );
-  const activeBuyOrderMatches = buyOrders.reduce((total, order) => {
-    return total + getBuyOrderMatches(order).length;
-  }, 0);
   const totalSales = saleRecords.length;
   const totalWonsSold = saleRecords.reduce((total, sale) => {
     const listing = listings.find((item) => item.id === sale.listing_id);
     return listing?.type === "Wons" ? total + Number(sale.quantity || 0) : total;
   }, 0);
+  const matchedBuyOrders = buyOrders.filter((order) => {
+    const status = order.status?.toLowerCase();
+    return status !== "sold" && status !== "cancelled" && getBuyOrderMatches(order).length > 0;
+  });
   const openRequestMatches = requests.filter((req) => {
     const status = req.status?.toLowerCase();
     return status !== "sold" && status !== "cancelled" && req.listings?.id;
   });
-  const activeMatches = activeBuyOrderMatches + openRequestMatches.length;
+  const activeMatches = matchedBuyOrders.length + openRequestMatches.length;
   const pagedSaleRecords = getPageItems(saleRecords, adminPage);
   const pagedBuyOrders = getPageItems(buyOrders, adminPage);
+  const pagedMatchedBuyOrders = getPageItems(matchedBuyOrders, adminPage);
   const pagedRequestMatches = getPageItems(openRequestMatches, adminPage);
   const pagedRequests = getPageItems(requests, adminPage);
   const pagedReports = getPageItems(reports, adminPage);
@@ -1186,7 +982,7 @@ export default function Admin() {
       : adminTab === "buy"
         ? buyOrders.length
         : adminTab === "matches"
-          ? openRequestMatches.length
+          ? activeMatches
           : adminTab === "requests"
             ? requests.length
             : adminTab === "reports"
@@ -1655,17 +1451,180 @@ export default function Admin() {
         {adminTab === "matches" && (
         <section className="mb-10">
           <SectionTitle
-            title="Buyer request matches"
-            description="Requests from Quero comprar with sold/cancelled confirmation."
+            title="Matches"
+            description="Buy orders and Quero comprar requests with sold/cancelled confirmation."
           />
 
-          {openRequestMatches.length === 0 ? (
+          {activeMatches === 0 ? (
             <Empty
-              title="No open buyer request matches"
-              message="Open requests from Quero comprar will appear here."
+              title="No open matches"
+              message="Open buy orders and Quero comprar requests will appear here."
             />
           ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-8">
+              {pagedMatchedBuyOrders.length > 0 && (
+                <div>
+                  <h3 className="mb-3 text-lg font-black">Buy order matches</h3>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {pagedMatchedBuyOrders.map((order) => {
+                      const matches = getBuyOrderMatches(order);
+
+                      return (
+                        <article
+                          key={order.id}
+                          className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 p-5"
+                        >
+                          <div className="mb-3 flex items-start justify-between gap-4">
+                            <div>
+                              <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                                <Badge>{formatServerLabel(order.server)}</Badge>
+                                <Badge>{order.type}</Badge>
+                                <span className="rounded-full bg-emerald-400 px-3 py-1 font-bold text-black">
+                                  Match found
+                                </span>
+                              </div>
+                              <h3 className="font-bold">{order.desired}</h3>
+                              <p className="text-sm text-neutral-400">
+                                Max price: {order.max_price || "-"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <ContactInfo
+                            label="Buyer contact"
+                            value={order.buyer_contact}
+                          />
+
+                          {order.message && (
+                            <p className="mt-3 rounded-xl bg-black p-3 text-sm">
+                              <span className="text-neutral-400">Message:</span>{" "}
+                              {order.message}
+                            </p>
+                          )}
+
+                          <div className="mt-4 grid gap-3">
+                            {matches.map((listing) => {
+                              const quantityKey = `${order.id}-${listing.id}`;
+                              const selectedQuantity =
+                                matchQuantities[quantityKey] || order.desired;
+                              const selectedPrice =
+                                matchPrices[quantityKey] ||
+                                formatPriceInput(listing.price);
+                              const soldQuantity = parseQuantity(selectedQuantity);
+                              const availableQuantity = parseQuantity(listing.title);
+                              const profitPerWon =
+                                parseMoney(selectedPrice) -
+                                parseMoney(listing.seller_expected_price);
+                              const matchProfit = profitPerWon * soldQuantity;
+
+                              return (
+                                <div
+                                  key={listing.id}
+                                  className="rounded-xl border border-white/10 bg-black/30 p-4"
+                                >
+                                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="font-bold">{listing.title}W</p>
+                                      <p className="text-xs text-neutral-400">
+                                        Available: {availableQuantity}W - Sell:{" "}
+                                        {listing.price} - Buy:{" "}
+                                        {listing.seller_expected_price || "-"}
+                                      </p>
+                                    </div>
+                                    <strong className="text-emerald-200">
+                                      Profit: {formatEuro(matchProfit)}
+                                    </strong>
+                                  </div>
+
+                                  <ContactInfo
+                                    label="Seller contact"
+                                    value={listing.seller_contact}
+                                  />
+
+                                  <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-center">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max={Math.min(
+                                        availableQuantity,
+                                        parseQuantity(order.desired)
+                                      )}
+                                      value={selectedQuantity}
+                                      onChange={(e) =>
+                                        setMatchQuantities({
+                                          ...matchQuantities,
+                                          [quantityKey]: e.target.value,
+                                        })
+                                      }
+                                      className="min-h-11 rounded-lg border border-white/10 bg-black px-3 py-2 outline-none focus:border-emerald-300/60"
+                                    />
+
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        min="0.01"
+                                        step="0.01"
+                                        value={selectedPrice}
+                                        onChange={(e) =>
+                                          setMatchPrices({
+                                            ...matchPrices,
+                                            [quantityKey]: e.target.value,
+                                          })
+                                        }
+                                        className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                                      />
+                                      <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
+                                        €
+                                      </span>
+                                    </div>
+
+                                    <button
+                                      onClick={() =>
+                                        markBuyOrderSold(order, listing)
+                                      }
+                                      disabled={
+                                        actionLoading ===
+                                        `match-sold-${quantityKey}`
+                                      }
+                                      className="min-h-11 rounded-lg bg-green-500 px-4 py-2 text-xs font-bold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {actionLoading ===
+                                      `match-sold-${quantityKey}`
+                                        ? "Saving..."
+                                        : "Vendido"}
+                                    </button>
+
+                                    <button
+                                      onClick={() =>
+                                        cancelBuyOrderMatch(order, listing)
+                                      }
+                                      disabled={
+                                        actionLoading ===
+                                        `match-cancel-${quantityKey}`
+                                      }
+                                      className="min-h-11 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {actionLoading ===
+                                      `match-cancel-${quantityKey}`
+                                        ? "Saving..."
+                                        : "Cancelado"}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {openRequestMatches.length > 0 && (
+                <div>
+                  <h3 className="mb-3 text-lg font-black">Buyer request matches</h3>
+                  <div className="grid gap-4 lg:grid-cols-2">
               {pagedRequestMatches.map((req) => {
                   const sellerMatches = getInterestSellerMatches(req);
                   const listing = sellerMatches[0];
@@ -1855,6 +1814,9 @@ export default function Admin() {
                     </article>
                   );
                 })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>

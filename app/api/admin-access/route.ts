@@ -1,28 +1,20 @@
 import { NextResponse } from "next/server";
+import { createAdminSession } from "../../../lib/admin-auth";
+import { checkRateLimit } from "../../../lib/rate-limit";
 
 const adminCookieName = "asrold_admin_gate";
 const sessionMaxAge = 60 * 60 * 6;
 
-function toBase64Url(bytes: ArrayBuffer) {
-  const binary = String.fromCharCode(...new Uint8Array(bytes));
-
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
-}
-
-async function createAdminSession(adminKey: string) {
-  const expiresAt = Date.now() + sessionMaxAge * 1000;
-  const encoder = new TextEncoder();
-  const data = encoder.encode(`${expiresAt}.${adminKey}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  const signature = toBase64Url(digest);
-
-  return `${expiresAt}.${signature}`;
-}
-
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit(request, "admin-access", 5, 15 * 60_000);
+
+  if (!rateLimit.ok) {
+    return Response.json(
+      { error: `Too many attempts. Try again in ${rateLimit.retryAfter}s.` },
+      { status: 429 }
+    );
+  }
+
   const { code } = (await request.json().catch(() => ({}))) as {
     code?: string;
   };
@@ -40,7 +32,7 @@ export async function POST(request: Request) {
   }
 
   const response = NextResponse.json({ success: true });
-  response.cookies.set(adminCookieName, await createAdminSession(adminKey), {
+  response.cookies.set(adminCookieName, await createAdminSession(adminKey, sessionMaxAge), {
     httpOnly: true,
     sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
