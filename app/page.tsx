@@ -218,6 +218,60 @@ function DiscordButton({
   );
 }
 
+function TawkWidget() {
+  useEffect(() => {
+    const w = window as typeof window & {
+      Tawk_API?: Record<string, unknown>;
+      Tawk_LoadStart?: Date;
+      __asroldTawkLoaded?: boolean;
+    };
+
+    w.Tawk_API = w.Tawk_API || {};
+    w.Tawk_LoadStart = w.Tawk_LoadStart || new Date();
+    w.Tawk_API.customStyle = {
+      visibility: {
+        desktop: { position: "br", xOffset: 20, yOffset: 20 },
+        mobile: { position: "br", xOffset: 12, yOffset: 12 },
+      },
+    };
+
+    if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+      const consoleWithFlag = console as typeof console & {
+        __asroldTawkFiltered?: boolean;
+      };
+
+      if (!consoleWithFlag.__asroldTawkFiltered) {
+        const originalConsoleError = console.error.bind(console);
+        console.error = function (...args) {
+          if (args.length === 1 && args[0] === true) return;
+          originalConsoleError(...args);
+        };
+        consoleWithFlag.__asroldTawkFiltered = true;
+      }
+    }
+
+    if (
+      w.__asroldTawkLoaded ||
+      document.querySelector('script[src*="embed.tawk.to/69fb9abe42635a1c35b82389"]')
+    ) {
+      w.__asroldTawkLoaded = true;
+      return;
+    }
+
+    w.__asroldTawkLoaded = true;
+
+    const script = document.createElement("script");
+    script.id = "tawk-widget";
+    script.async = true;
+    script.src = "https://embed.tawk.to/69fb9abe42635a1c35b82389/1jnvd8u22";
+    script.charset = "UTF-8";
+    script.crossOrigin = "*";
+    document.body.appendChild(script);
+  }, []);
+
+  return null;
+}
+
 function contactPlaceholder(method: string) {
   if (method === "Whatsapp") return "Whatsapp";
   if (method === "Facebook") return "Facebook";
@@ -1672,36 +1726,7 @@ const text = {
           onReady={() => setIsTurnstileReady(true)}
         />
       )}
-      <Script
-        id="tawk-init"
-        strategy="beforeInteractive"
-        dangerouslySetInnerHTML={{
-          __html:
-            `
-              window.Tawk_API=window.Tawk_API||{};
-              window.Tawk_LoadStart=new Date();
-              window.Tawk_API.customStyle = {
-                visibility: {
-                  desktop: { position: 'br', xOffset: 20, yOffset: 20 },
-                  mobile: { position: 'br', xOffset: 12, yOffset: 12 }
-                }
-              };
-              if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-                var originalConsoleError = console.error.bind(console);
-                console.error = function () {
-                  if (arguments.length === 1 && arguments[0] === true) return;
-                  originalConsoleError.apply(console, arguments);
-                };
-              }
-            `,
-        }}
-      />
-      <Script
-        id="tawk-widget"
-        src="https://embed.tawk.to/69fb9abe42635a1c35b82389/1jnvd8u22"
-        strategy="afterInteractive"
-        crossOrigin="anonymous"
-      />
+      <TawkWidget />
 
       <header className="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/[0.82] backdrop-blur-xl">
         <div className="mx-auto grid max-w-6xl gap-4 px-5 py-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
