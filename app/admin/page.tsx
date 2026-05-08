@@ -252,6 +252,7 @@ export default function Admin() {
     {}
   );
   const [matchPrices, setMatchPrices] = useState<Record<string, string>>({});
+  const [matchBuyPrices, setMatchBuyPrices] = useState<Record<string, string>>({});
   const [matchSellerSelections, setMatchSellerSelections] = useState<
     Record<string, string>
   >({});
@@ -499,6 +500,13 @@ export default function Admin() {
       return;
     }
 
+    if (
+      parseMoney(matchBuyPrices[quantityKey] || listing.seller_expected_price) <= 0
+    ) {
+      alert("Please enter a valid buy price.");
+      return;
+    }
+
     if (soldQuantity > availableQuantity) {
       alert("Sold quantity can not be higher than the listing quantity.");
       return;
@@ -525,6 +533,7 @@ export default function Admin() {
         listingId: listing.id,
         quantity: soldQuantity,
         soldPrice: matchPrices[quantityKey] || listing.price,
+        buyPrice: matchBuyPrices[quantityKey] || listing.seller_expected_price,
       });
     } catch (error) {
       setActionLoading(null);
@@ -538,6 +547,11 @@ export default function Admin() {
       return next;
     });
     setMatchPrices((current) => {
+      const next = { ...current };
+      delete next[quantityKey];
+      return next;
+    });
+    setMatchBuyPrices((current) => {
       const next = { ...current };
       delete next[quantityKey];
       return next;
@@ -580,6 +594,8 @@ export default function Admin() {
         sellerMatches.find((seller) => seller.id === selectedSellerId)) ||
       listing;
     const soldPrice = matchPrices[quantityKey] || listing.price;
+    const buyPrice =
+      matchBuyPrices[quantityKey] || selectedSeller.seller_expected_price;
     const requestedQuantity = parseQuantity(request.desired);
     const availableQuantity =
       listing.type === "Wons"
@@ -597,6 +613,11 @@ export default function Admin() {
 
     if (parseMoney(matchPrices[quantityKey] || listing.price) <= 0) {
       alert("Please enter a valid sold price.");
+      return;
+    }
+
+    if (parseMoney(buyPrice) <= 0) {
+      alert("Please enter a valid buy price.");
       return;
     }
 
@@ -636,6 +657,7 @@ export default function Admin() {
         sellerId: selectedSeller.id,
         quantity: soldQuantity,
         soldPrice,
+        buyPrice,
       });
     } catch (error) {
       setActionLoading(null);
@@ -649,6 +671,11 @@ export default function Admin() {
       return next;
     });
     setMatchPrices((current) => {
+      const next = { ...current };
+      delete next[quantityKey];
+      return next;
+    });
+    setMatchBuyPrices((current) => {
       const next = { ...current };
       delete next[quantityKey];
       return next;
@@ -1405,11 +1432,13 @@ export default function Admin() {
                             const selectedPrice =
                               matchPrices[quantityKey] ||
                               formatPriceInput(listing.price);
+                            const selectedBuyPrice =
+                              matchBuyPrices[quantityKey] ||
+                              formatPriceInput(listing.seller_expected_price);
                             const soldQuantity = parseQuantity(selectedQuantity);
                             const availableQuantity = parseQuantity(listing.title);
                             const profitPerWon =
-                              parseMoney(selectedPrice) -
-                              parseMoney(listing.seller_expected_price);
+                              parseMoney(selectedPrice) - parseMoney(selectedBuyPrice);
                             const matchProfit = profitPerWon * soldQuantity;
 
                             return (
@@ -1438,7 +1467,7 @@ export default function Admin() {
                                 </div>
 
                                 <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
-                                  <div className="grid gap-3 sm:grid-cols-2">
+                                  <div className="grid gap-3 sm:grid-cols-3">
                                     <input
                                       type="number"
                                       min="1"
@@ -1469,6 +1498,26 @@ export default function Admin() {
                                           })
                                         }
                                         className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                                      />
+                                      <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
+                                        €
+                                      </span>
+                                    </div>
+
+                                    <div className="relative min-w-[8.5rem]">
+                                      <input
+                                        type="number"
+                                        min="0.01"
+                                        step="0.01"
+                                        value={selectedBuyPrice}
+                                        onChange={(e) =>
+                                          setMatchBuyPrices({
+                                            ...matchBuyPrices,
+                                            [quantityKey]: e.target.value,
+                                          })
+                                        }
+                                        className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                                        title="Buy price"
                                       />
                                       <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
                                         €
@@ -1643,11 +1692,14 @@ export default function Admin() {
                               const selectedPrice =
                                 matchPrices[quantityKey] ||
                                 formatPriceInput(listing.price);
+                              const selectedBuyPrice =
+                                matchBuyPrices[quantityKey] ||
+                                formatPriceInput(listing.seller_expected_price);
                               const soldQuantity = parseQuantity(selectedQuantity);
                               const availableQuantity = parseQuantity(listing.title);
                               const profitPerWon =
                                 parseMoney(selectedPrice) -
-                                parseMoney(listing.seller_expected_price);
+                                parseMoney(selectedBuyPrice);
                               const matchProfit = profitPerWon * soldQuantity;
 
                               return (
@@ -1674,7 +1726,7 @@ export default function Admin() {
                                     value={listing.seller_contact}
                                   />
 
-                                  <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-center">
+                                  <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto] sm:items-center">
                                     <input
                                       type="number"
                                       min="1"
@@ -1705,6 +1757,26 @@ export default function Admin() {
                                           })
                                         }
                                         className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                                      />
+                                      <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
+                                        €
+                                      </span>
+                                    </div>
+
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        min="0.01"
+                                        step="0.01"
+                                        value={selectedBuyPrice}
+                                        onChange={(e) =>
+                                          setMatchBuyPrices({
+                                            ...matchBuyPrices,
+                                            [quantityKey]: e.target.value,
+                                          })
+                                        }
+                                        className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                                        title="Buy price"
                                       />
                                       <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
                                         €
@@ -1783,14 +1855,16 @@ export default function Admin() {
                     "1";
                   const selectedPrice =
                     matchPrices[quantityKey] || formatPriceInput(listing.price);
+                  const selectedBuyPrice =
+                    matchBuyPrices[quantityKey] ||
+                    formatPriceInput(selectedSeller.seller_expected_price);
                   const soldQuantity = parseQuantity(selectedQuantity);
                   const availableQuantity =
                     listing.type === "Wons"
                       ? parseQuantity(selectedSeller.title)
                       : parseQuantity(listing.title);
                   const requestProfit =
-                    (parseMoney(selectedPrice) -
-                      parseMoney(selectedSeller.seller_expected_price)) *
+                    (parseMoney(selectedPrice) - parseMoney(selectedBuyPrice)) *
                     soldQuantity;
 
                   return (
@@ -1861,7 +1935,7 @@ export default function Admin() {
                       )}
 
                       <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
-                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_7rem_9rem]">
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_7rem_9rem_9rem]">
                           {listing.type === "Wons" && (
                             <select
                               value={selectedSeller.id}
@@ -1916,6 +1990,26 @@ export default function Admin() {
                                 })
                               }
                               className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                            />
+                            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
+                              €
+                            </span>
+                          </div>
+
+                          <div className="relative min-w-[8.5rem]">
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={selectedBuyPrice}
+                              onChange={(e) =>
+                                setMatchBuyPrices({
+                                  ...matchBuyPrices,
+                                  [quantityKey]: e.target.value,
+                                })
+                              }
+                              className="min-h-11 w-full rounded-lg border border-white/10 bg-black px-3 py-2 pr-11 outline-none focus:border-emerald-300/60"
+                              title="Buy price"
                             />
                             <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500">
                               €

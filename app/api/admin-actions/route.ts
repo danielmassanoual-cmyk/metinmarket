@@ -211,9 +211,11 @@ export async function POST(request: Request) {
       const availableQuantity = parseQuantity(listing.title);
       const requestedQuantity = parseQuantity(order.desired);
       const soldPrice = moneyValue(body.soldPrice || listing.price);
+      const buyPrice = moneyValue(body.buyPrice || listing.seller_expected_price);
 
       if (!soldQuantity || soldQuantity <= 0) throw new Error("Invalid quantity.");
       if (!isValidMoney(soldPrice)) throw new Error("Invalid sold price.");
+      if (!isValidMoney(buyPrice)) throw new Error("Invalid buy price.");
       if (soldQuantity > availableQuantity) throw new Error("Quantity too high.");
       if (requestedQuantity > 0 && soldQuantity > requestedQuantity) {
         throw new Error("Quantity is higher than the buy order.");
@@ -221,8 +223,7 @@ export async function POST(request: Request) {
 
       const remainingQuantity = Math.max(availableQuantity - soldQuantity, 0);
       const saleProfit =
-        (parseMoney(soldPrice) - parseMoney(listing.seller_expected_price)) *
-        soldQuantity;
+        (parseMoney(soldPrice) - parseMoney(buyPrice)) * soldQuantity;
       const nextProfit =
         (await getRecordedProfitForListing(supabaseAdmin, listing.id)) +
         saleProfit;
@@ -289,9 +290,13 @@ export async function POST(request: Request) {
         selectedListing.type === "Wons" ? parseQuantity(selectedListing.title) : 1;
       const requestedQuantity = parseQuantity(interestRequest.desired);
       const soldPrice = moneyValue(body.soldPrice || selectedListing.price);
+      const buyPrice = moneyValue(
+        body.buyPrice || selectedListing.seller_expected_price
+      );
 
       if (!soldQuantity || soldQuantity <= 0) throw new Error("Invalid quantity.");
       if (!isValidMoney(soldPrice)) throw new Error("Invalid sold price.");
+      if (!isValidMoney(buyPrice)) throw new Error("Invalid buy price.");
       if (selectedListing.type === "Wons" && soldQuantity > availableQuantity) {
         throw new Error("Quantity too high.");
       }
@@ -308,9 +313,7 @@ export async function POST(request: Request) {
           ? Math.max(availableQuantity - soldQuantity, 0)
           : 0;
       const saleProfit =
-        (parseMoney(soldPrice) -
-          parseMoney(selectedListing.seller_expected_price)) *
-        soldQuantity;
+        (parseMoney(soldPrice) - parseMoney(buyPrice)) * soldQuantity;
       const nextProfit =
         (await getRecordedProfitForListing(supabaseAdmin, selectedListing.id)) +
         saleProfit;
