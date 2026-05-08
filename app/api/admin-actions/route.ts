@@ -47,6 +47,11 @@ function moneyValue(value: unknown) {
   return cleanText(value, 12).replace(",", ".");
 }
 
+function isValidMoney(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 99999;
+}
+
 async function getListing(supabaseAdmin: ReturnType<typeof getSupabaseAdmin>, id: string) {
   const { data, error } = await supabaseAdmin
     .from("listings")
@@ -133,6 +138,7 @@ export async function POST(request: Request) {
       const id = cleanText(body.id, 80);
       const publicPrice = moneyValue(body.publicPrice);
       if (!id || !publicPrice) throw new Error("Missing approval data.");
+      if (!isValidMoney(publicPrice)) throw new Error("Invalid public price.");
 
       const { data: item, error: itemError } = await supabaseAdmin
         .from("sale_submissions")
@@ -207,6 +213,7 @@ export async function POST(request: Request) {
       const soldPrice = moneyValue(body.soldPrice || listing.price);
 
       if (!soldQuantity || soldQuantity <= 0) throw new Error("Invalid quantity.");
+      if (!isValidMoney(soldPrice)) throw new Error("Invalid sold price.");
       if (soldQuantity > availableQuantity) throw new Error("Quantity too high.");
       if (requestedQuantity > 0 && soldQuantity > requestedQuantity) {
         throw new Error("Quantity is higher than the buy order.");
@@ -284,6 +291,7 @@ export async function POST(request: Request) {
       const soldPrice = moneyValue(body.soldPrice || selectedListing.price);
 
       if (!soldQuantity || soldQuantity <= 0) throw new Error("Invalid quantity.");
+      if (!isValidMoney(soldPrice)) throw new Error("Invalid sold price.");
       if (selectedListing.type === "Wons" && soldQuantity > availableQuantity) {
         throw new Error("Quantity too high.");
       }
@@ -415,10 +423,16 @@ export async function POST(request: Request) {
         .eq("id", cleanText(body.id, 80));
       if (error) throw new Error(error.message);
     } else if (action === "saveMaintenance") {
+      const value = body.value as { enabled?: unknown; message?: unknown };
       const { error } = await supabaseAdmin
         .from("site_settings")
         .update({
-          value: body.value,
+          value: {
+            enabled: Boolean(value?.enabled),
+            message:
+              cleanText(value?.message, 300) ||
+              "Submissions are temporarily closed. Please try again later.",
+          },
           updated_at: new Date().toISOString(),
         })
         .eq("key", "maintenance");

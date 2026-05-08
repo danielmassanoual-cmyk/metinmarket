@@ -145,6 +145,13 @@ function formatServerLabel(value: string | null | undefined) {
   return (value || "-").replace(/^EUW-/, "");
 }
 
+function normalizeServerKey(value: string | null | undefined) {
+  return (value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(euw|tr)-/, "");
+}
+
 function normalizeAdminServer(value: string | null | undefined) {
   if (!value) return "EUW-Iberia";
   if (servers.includes(value)) return value;
@@ -961,7 +968,11 @@ export default function Admin() {
   }, 0);
   const matchedBuyOrders = buyOrders.filter((order) => {
     const status = order.status?.toLowerCase();
-    return status !== "sold" && status !== "cancelled" && getBuyOrderMatches(order).length > 0;
+    return (
+      status !== "sold" &&
+      status !== "cancelled" &&
+      getBuyOrderMatchGroups(order).length > 0
+    );
   });
   const openRequestMatches = requests.filter((req) => {
     const status = req.status?.toLowerCase();
@@ -1000,7 +1011,7 @@ export default function Admin() {
     setAdminPage(1);
   }
 
-  function getBuyOrderMatches(order: BuyOrder) {
+  function getBuyOrderMatchGroups(order: BuyOrder) {
     const isOpen =
       !order.status ||
       order.status.toLowerCase() === "open" ||
@@ -1011,10 +1022,43 @@ export default function Admin() {
     const desired = order.desired.toLowerCase();
     const requestedQuantity = parseQuantity(order.desired);
     const maxPrice = parseMoney(order.max_price);
+    const orderServer = normalizeServerKey(order.server);
+
+    if (order.type === "Wons") {
+      const groupedWons = new Map<string, Listing>();
+
+      activeListings.forEach((listing) => {
+        const sameMarket =
+          normalizeServerKey(listing.server) === orderServer &&
+          listing.type === order.type;
+        const listingPrice = parseMoney(listing.price);
+        const priceMatch = !maxPrice || listingPrice <= maxPrice;
+
+        if (!sameMarket || !priceMatch) return;
+
+        const groupKey = `${normalizeServerKey(listing.server)}|${listing.price}`;
+        const current = groupedWons.get(groupKey);
+
+        if (!current) {
+          groupedWons.set(groupKey, { ...listing });
+          return;
+        }
+
+        current.title = String(
+          parseQuantity(current.title) + parseQuantity(listing.title)
+        );
+      });
+
+      return Array.from(groupedWons.values()).filter((listing) => {
+        const listingQuantity = parseQuantity(listing.title);
+        return requestedQuantity > 0 && listingQuantity >= requestedQuantity;
+      });
+    }
 
     return activeListings.filter((listing) => {
       const sameMarket =
-        listing.server === order.server && listing.type === order.type;
+        normalizeServerKey(listing.server) === orderServer &&
+        listing.type === order.type;
       const listingQuantity = parseQuantity(listing.title);
       const listingPrice = parseMoney(listing.price);
       const quantityMatch =
@@ -1027,6 +1071,25 @@ export default function Admin() {
         desired.includes(listing.title.toLowerCase());
 
       return sameMarket && quantityMatch && priceMatch && textMatch;
+    });
+  }
+
+  function getBuyOrderMatches(order: BuyOrder) {
+    return getBuyOrderMatchGroups(order).filter((listing) => {
+      if (order.type !== "Wons") return true;
+
+      return parseQuantity(listing.title) >= parseQuantity(order.desired);
+    });
+  }
+
+  function getBuyOrderPartialMatches(order: BuyOrder) {
+    return getBuyOrderMatchGroups(order).filter((listing) => {
+      if (order.type !== "Wons") return false;
+
+      const quantity = parseQuantity(listing.title);
+      const requested = parseQuantity(order.desired);
+
+      return quantity > 0 && requested > 0 && quantity < requested;
     });
   }
 
@@ -1265,6 +1328,7 @@ export default function Admin() {
             <div className="grid gap-4 lg:grid-cols-2">
               {pagedBuyOrders.map((order) => {
                 const matches = getBuyOrderMatches(order);
+                const partialMatches = getBuyOrderPartialMatches(order);
 
                 return (
                   <div
@@ -1272,6 +1336,8 @@ export default function Admin() {
                     className={`rounded-2xl border p-5 transition hover:-translate-y-0.5 ${
                       matches.length > 0
                         ? "border-emerald-300/30 bg-emerald-400/10"
+                        : partialMatches.length > 0
+                          ? "border-yellow-300/30 bg-yellow-400/10"
                         : "border-white/10 bg-neutral-900"
                     }`}
                   >
@@ -1286,6 +1352,16 @@ export default function Admin() {
                               Match found
                             </span>
                           )}
+                          {matches.length === 0 &&
+                            partialMatches.map((listing) => (
+                              <span
+                                key={listing.id}
+                                className="rounded-full bg-yellow-300 px-3 py-1 font-bold text-black"
+                              >
+                                Partial match: {parseQuantity(listing.title)}W /{" "}
+                                {parseQuantity(order.desired)}W
+                              </span>
+                            ))}
                         </div>
                         <h3 className="font-bold">{order.desired}</h3>
                         <p className="text-sm text-neutral-400">
@@ -1440,6 +1516,31 @@ export default function Admin() {
                         </div>
                       </div>
                     )}
+
+                    {matches.length === 0 && partialMatches.length > 0 && (
+                      <div className="mt-3 rounded-xl border border-yellow-300/20 bg-yellow-300/10 p-4 text-sm">
+                        <p className="font-bold text-yellow-100">
+                          Partial match
+                        </p>
+                        <div className="mt-2 grid gap-2">
+                          {partialMatches.map((listing) => (
+                            <div
+                              key={listing.id}
+                              className="rounded-lg bg-neutral-950 p-3"
+                            >
+                              <p className="font-bold">
+                                {parseQuantity(listing.title)}W /{" "}
+                                {parseQuantity(order.desired)}W
+                              </p>
+                              <p className="text-xs text-neutral-400">
+                                Sell: {listing.price} - Max:{" "}
+                                {order.max_price || "-"}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1464,23 +1565,39 @@ export default function Admin() {
             <div className="space-y-8">
               {pagedMatchedBuyOrders.length > 0 && (
                 <div>
-                  <h3 className="mb-3 text-lg font-black">Buy order matches</h3>
+                  <h3 className="mb-3 text-lg font-black">
+                    Buy order matches
+                  </h3>
                   <div className="grid gap-4 lg:grid-cols-2">
                     {pagedMatchedBuyOrders.map((order) => {
                       const matches = getBuyOrderMatches(order);
+                      const partialMatches = getBuyOrderPartialMatches(order);
+                      const hasFullMatch = matches.length > 0;
 
                       return (
                         <article
                           key={order.id}
-                          className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 p-5"
+                          className={`rounded-2xl border p-5 ${
+                            hasFullMatch
+                              ? "border-emerald-300/30 bg-emerald-400/10"
+                              : "border-yellow-300/30 bg-yellow-400/10"
+                          }`}
                         >
                           <div className="mb-3 flex items-start justify-between gap-4">
                             <div>
                               <div className="mb-2 flex flex-wrap gap-2 text-xs">
                                 <Badge>{formatServerLabel(order.server)}</Badge>
                                 <Badge>{order.type}</Badge>
-                                <span className="rounded-full bg-emerald-400 px-3 py-1 font-bold text-black">
-                                  Match found
+                                <span
+                                  className={`rounded-full px-3 py-1 font-bold text-black ${
+                                    hasFullMatch
+                                      ? "bg-emerald-400"
+                                      : "bg-yellow-300"
+                                  }`}
+                                >
+                                  {hasFullMatch
+                                    ? "Match found"
+                                    : "Partial match"}
                                 </span>
                               </div>
                               <h3 className="font-bold">{order.desired}</h3>
@@ -1502,6 +1619,22 @@ export default function Admin() {
                             </p>
                           )}
 
+                          {!hasFullMatch && partialMatches.length > 0 && (
+                            <div className="mt-4 rounded-xl border border-yellow-300/20 bg-black/20 p-4 text-sm">
+                              <p className="font-bold text-yellow-100">
+                                Not enough Wons yet
+                              </p>
+                              {partialMatches.map((listing) => (
+                                <p key={listing.id} className="mt-2 text-neutral-300">
+                                  {parseQuantity(listing.title)}W /{" "}
+                                  {parseQuantity(order.desired)}W at{" "}
+                                  {listing.price}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+
+                          {hasFullMatch && (
                           <div className="mt-4 grid gap-3">
                             {matches.map((listing) => {
                               const quantityKey = `${order.id}-${listing.id}`;
@@ -1614,6 +1747,7 @@ export default function Admin() {
                               );
                             })}
                           </div>
+                          )}
                         </article>
                       );
                     })}
