@@ -53,6 +53,12 @@ type Listing = {
   is_active: boolean;
 };
 
+type OpenedImage = {
+  images: string[];
+  index: number;
+  alt: string;
+};
+
 type InterestRequest = {
   id: string;
   desired: string | null;
@@ -117,6 +123,15 @@ type ListingReport = {
     is_active: boolean | null;
   } | null;
 };
+
+function getImages(item: { image_url: string | null; image_urls?: string[] | null }) {
+  const images = [
+    ...(Array.isArray(item.image_urls) ? item.image_urls : []),
+    item.image_url,
+  ].filter((image): image is string => Boolean(image));
+
+  return Array.from(new Set(images));
+}
 
 type MaintenanceSettings = {
   enabled: boolean;
@@ -246,7 +261,7 @@ export default function Admin() {
     enabled: false,
     message: "Submissions are temporarily closed. Please try again later.",
   });
-  const [openedImage, setOpenedImage] = useState<string | null>(null);
+  const [openedImage, setOpenedImage] = useState<OpenedImage | null>(null);
   const [noteTarget, setNoteTarget] = useState<NoteTarget>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [publicPrices, setPublicPrices] = useState<Record<string, string>>({});
@@ -2289,10 +2304,14 @@ export default function Admin() {
                   className="overflow-hidden rounded-2xl border border-white/10 bg-neutral-900 transition hover:-translate-y-0.5 hover:border-white/20"
                 >
                   <ImageBox
-                    image={item.image_url}
+                    images={getImages(item)}
                     title={item.title}
-                    onOpen={() =>
-                      item.image_url && setOpenedImage(item.image_url)
+                    onOpen={(index) =>
+                      setOpenedImage({
+                        images: getImages(item),
+                        index,
+                        alt: item.title,
+                      })
                     }
                   />
 
@@ -2470,11 +2489,15 @@ export default function Admin() {
                   className="grid gap-4 rounded-2xl border border-white/10 bg-neutral-900 p-4 transition hover:-translate-y-0.5 hover:border-white/20 md:grid-cols-[170px_1fr_auto]"
                 >
                   <ImageBox
-                    image={item.image_url}
+                    images={getImages(item)}
                     title={item.title}
                     compact
-                    onOpen={() =>
-                      item.image_url && setOpenedImage(item.image_url)
+                    onOpen={(index) =>
+                      setOpenedImage({
+                        images: getImages(item),
+                        index,
+                        alt: item.title,
+                      })
                     }
                   />
 
@@ -2716,9 +2739,53 @@ export default function Admin() {
             X
           </button>
 
+          {openedImage.images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenedImage((current) =>
+                    current
+                      ? {
+                          ...current,
+                          index:
+                            (current.index - 1 + current.images.length) %
+                            current.images.length,
+                        }
+                      : current
+                  )
+                }
+                className="absolute left-6 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-3xl font-black text-white backdrop-blur transition hover:bg-white/25"
+                aria-label="Previous image"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenedImage((current) =>
+                    current
+                      ? {
+                          ...current,
+                          index: (current.index + 1) % current.images.length,
+                        }
+                      : current
+                  )
+                }
+                className="absolute right-6 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-3xl font-black text-white backdrop-blur transition hover:bg-white/25"
+                aria-label="Next image"
+              >
+                ›
+              </button>
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-white/15 px-4 py-2 text-sm font-bold text-white backdrop-blur">
+                {openedImage.index + 1}/{openedImage.images.length}
+              </div>
+            </>
+          )}
+
           <img
-            src={openedImage}
-            alt="Expanded image"
+            src={openedImage.images[openedImage.index]}
+            alt={openedImage.alt}
             className="max-h-[90vh] max-w-[90vw] rounded-2xl object-contain"
           />
         </div>
@@ -2850,26 +2917,29 @@ function Badge({ children }: { children: React.ReactNode }) {
 }
 
 function ImageBox({
-  image,
+  images,
   title,
   compact = false,
   onOpen,
 }: {
-  image: string | null;
+  images: string[];
   title: string;
   compact?: boolean;
-  onOpen: () => void;
+  onOpen: (index: number) => void;
 }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const image = images[activeIndex];
+
   return (
     <div
-      className={`overflow-hidden rounded-xl bg-neutral-800 ${
+      className={`relative overflow-hidden rounded-xl bg-neutral-800 ${
         compact ? "h-32" : "h-44"
       }`}
     >
       {image ? (
         <button
           type="button"
-          onClick={onOpen}
+          onClick={() => onOpen(activeIndex)}
           className="h-full w-full cursor-zoom-in"
         >
           <img
@@ -2882,6 +2952,36 @@ function ImageBox({
         <div className="flex h-full items-center justify-center text-sm text-neutral-500">
           No image
         </div>
+      )}
+
+      {images.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              setActiveIndex(
+                (current) => (current - 1 + images.length) % images.length
+              )
+            }
+            className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/70 text-lg font-black text-white transition hover:bg-black"
+            aria-label="Previous image"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setActiveIndex((current) => (current + 1) % images.length)
+            }
+            className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/70 text-lg font-black text-white transition hover:bg-black"
+            aria-label="Next image"
+          >
+            ›
+          </button>
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-2.5 py-1 text-[11px] font-bold text-white">
+            {activeIndex + 1}/{images.length}
+          </div>
+        </>
       )}
     </div>
   );

@@ -22,6 +22,12 @@ type Listing = {
   group_listing_ids?: string[];
 };
 
+type OpenedImage = {
+  images: string[];
+  index: number;
+  alt: string;
+};
+
 const servers = ["Todos", "EUW-Iberia", "EUW-Tigerghost", "EUW-Ruby", "EUW-Germania", "EUW-Teutonia", "EUW-Oceane", "EUW-Chimera", "EUW-Europe", "EUW-Italia", "EUW-Lumen", "TR-Safir", "TR-Star", "TR-Charon", "TR-Lucifer"];
 const allTypes = ["Todos", "Item", "Conta", "Wons"];
 const saleTypes = ["Item", "Conta", "Wons"];
@@ -426,7 +432,7 @@ export default function Home() {
   const [server, setServer] = useState("Todos");
   const [type, setType] = useState("Todos");
   const [itemCategory, setItemCategory] = useState("Todos");
-  const [sortMode, setSortMode] = useState("best");
+  const [sortMode, setSortMode] = useState("newest");
   const [bestPriceOnly, setBestPriceOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -441,7 +447,7 @@ export default function Home() {
   const [reportReason, setReportReason] = useState("");
   const [reportContact, setReportContact] = useState("");
 
-  const [openedImage, setOpenedImage] = useState<string | null>(null);
+  const [openedImage, setOpenedImage] = useState<OpenedImage | null>(null);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [listingImageIndexes, setListingImageIndexes] = useState<
     Record<string, number>
@@ -1368,6 +1374,13 @@ const text = {
       : visible;
 
     return filteredVisible.sort((a, b) => {
+      if (sortMode === "newest") {
+        return (
+          new Date(b.created_at || 0).getTime() -
+          new Date(a.created_at || 0).getTime()
+        );
+      }
+
       if (a.type === "Wons" && b.type !== "Wons") return -1;
       if (a.type !== "Wons" && b.type === "Wons") return 1;
 
@@ -1384,13 +1397,6 @@ const text = {
         if (sortMode === "best" && serverCompare !== 0) return serverCompare;
 
         return parseListingPrice(a.price) - parseListingPrice(b.price);
-      }
-
-      if (sortMode === "newest") {
-        return (
-          new Date(b.created_at || 0).getTime() -
-          new Date(a.created_at || 0).getTime()
-        );
       }
 
       return a.title.localeCompare(b.title);
@@ -1987,11 +1993,11 @@ const text = {
                   }}
                   className="rounded-xl border border-white/10 bg-neutral-950/90 px-4 py-3 pr-12 outline-none [color-scheme:dark] focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-400/15"
                 >
-                  <option value="best">
-                    {text.sortBy}: {text.sortBest}
-                  </option>
                   <option value="newest">
                     {text.sortBy}: {text.sortNewest}
+                  </option>
+                  <option value="best">
+                    {text.sortBy}: {text.sortBest}
                   </option>
                   <option value="quantity">
                     {text.sortBy}: {text.sortQuantity}
@@ -2073,13 +2079,14 @@ const text = {
       {getListingImages(item).length > 0 ? (
         <button
           type="button"
-          onClick={() =>
-            setOpenedImage(
-              getListingImages(item)[
-                listingImageIndexes[item.id] || 0
-              ] || getListingImages(item)[0]
-            )
-          }
+          onClick={() => {
+            const images = getListingImages(item);
+            setOpenedImage({
+              images,
+              index: listingImageIndexes[item.id] || 0,
+              alt: item.title,
+            });
+          }}
           className="h-full w-full cursor-zoom-in"
         >
           <img
@@ -2954,9 +2961,53 @@ const text = {
             X
           </button>
 
+          {openedImage.images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenedImage((current) =>
+                    current
+                      ? {
+                          ...current,
+                          index:
+                            (current.index - 1 + current.images.length) %
+                            current.images.length,
+                        }
+                      : current
+                  )
+                }
+                className="absolute left-6 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-3xl font-black text-white backdrop-blur transition hover:bg-white/25"
+                aria-label={text.previous}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenedImage((current) =>
+                    current
+                      ? {
+                          ...current,
+                          index: (current.index + 1) % current.images.length,
+                        }
+                      : current
+                  )
+                }
+                className="absolute right-6 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-3xl font-black text-white backdrop-blur transition hover:bg-white/25"
+                aria-label={text.next}
+              >
+                ›
+              </button>
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-white/15 px-4 py-2 text-sm font-bold text-white backdrop-blur">
+                {openedImage.index + 1}/{openedImage.images.length}
+              </div>
+            </>
+          )}
+
           <img
-            src={openedImage}
-            alt="Imagem ampliada"
+            src={openedImage.images[openedImage.index]}
+            alt={openedImage.alt}
             className="max-h-[90vh] max-w-[90vw] rounded-2xl object-contain"
           />
         </div>
