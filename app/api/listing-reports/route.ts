@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "../../../lib/supabase-admin";
 import { checkRateLimit } from "../../../lib/rate-limit";
 import { blockIfMaintenance } from "../../../lib/site-settings";
+import { notifyListingReport } from "../../../lib/discord-notifications";
 import { cleanMultiline, cleanText, verifyTurnstile } from "../../../lib/public-submit";
 
 export async function POST(request: Request) {
@@ -47,6 +48,13 @@ export async function POST(request: Request) {
   if (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
+
+  await notifyListingReport({
+    supabaseAdmin,
+    listingId,
+    reason,
+    reporterContact,
+  });
 
   return Response.json({ success: true });
 }

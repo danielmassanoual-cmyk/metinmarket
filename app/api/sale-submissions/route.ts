@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "../../../lib/supabase-admin";
 import { checkRateLimit } from "../../../lib/rate-limit";
 import { blockIfMaintenance } from "../../../lib/site-settings";
+import { notifySaleSubmission } from "../../../lib/discord-notifications";
 import {
   cleanMultiline,
   cleanText,
@@ -159,6 +160,18 @@ export async function POST(request: Request) {
   if (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
+
+  await notifySaleSubmission({
+    supabaseAdmin,
+    title,
+    server,
+    type,
+    sellerExpectedPrice: `${
+      type === "Wons" ? normalizeCentPrice(sellerExpectedPrice) : sellerExpectedPrice
+    } EUR`,
+    sellerContact: formatContact(sellerContactMethod, sellerContact),
+    imageCount: imageUrls.length,
+  });
 
   return Response.json({ success: true });
 }

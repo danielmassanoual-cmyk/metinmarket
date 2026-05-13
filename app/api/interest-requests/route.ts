@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "../../../lib/supabase-admin";
 import { checkRateLimit } from "../../../lib/rate-limit";
 import { blockIfMaintenance } from "../../../lib/site-settings";
+import { notifyInterestRequest } from "../../../lib/discord-notifications";
 import {
   cleanMultiline,
   cleanText,
@@ -60,6 +61,15 @@ export async function POST(request: Request) {
   if (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
+
+  await notifyInterestRequest({
+    supabaseAdmin,
+    listingId,
+    desired,
+    maxPrice: maxPrice ? `${maxPrice} EUR` : "",
+    buyerContact: formatContact(buyerContactMethod, buyerContact),
+    message,
+  });
 
   return Response.json({ success: true });
 }

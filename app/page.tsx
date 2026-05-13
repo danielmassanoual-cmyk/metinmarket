@@ -1069,6 +1069,51 @@ const text = {
     },
   }[lang];
 
+  const uploadCopy = {
+    pt: {
+      accountHint: "Podes adicionar até 8 fotografias. JPG, PNG ou WebP até 4MB cada.",
+      itemHint: "Adiciona 1 imagem. JPG, PNG ou WebP até 4MB.",
+      selectedOne: "fotografia selecionada",
+      selectedMany: "fotografias selecionadas",
+      remove: "Remover fotografia",
+    },
+    en: {
+      accountHint: "You can add up to 8 photos. JPG, PNG or WebP up to 4MB each.",
+      itemHint: "Add 1 image. JPG, PNG or WebP up to 4MB.",
+      selectedOne: "photo selected",
+      selectedMany: "photos selected",
+      remove: "Remove photo",
+    },
+    es: {
+      accountHint: "Puedes añadir hasta 8 fotografías. JPG, PNG o WebP de hasta 4MB cada una.",
+      itemHint: "Añade 1 imagen. JPG, PNG o WebP de hasta 4MB.",
+      selectedOne: "fotografía seleccionada",
+      selectedMany: "fotografías seleccionadas",
+      remove: "Eliminar fotografía",
+    },
+    de: {
+      accountHint: "Du kannst bis zu 8 Fotos hinzufügen. JPG, PNG oder WebP bis 4MB pro Foto.",
+      itemHint: "Füge 1 Bild hinzu. JPG, PNG oder WebP bis 4MB.",
+      selectedOne: "Foto ausgewählt",
+      selectedMany: "Fotos ausgewählt",
+      remove: "Foto entfernen",
+    },
+    ro: {
+      accountHint: "Poți adăuga până la 8 fotografii. JPG, PNG sau WebP până la 4MB fiecare.",
+      itemHint: "Adaugă 1 imagine. JPG, PNG sau WebP până la 4MB.",
+      selectedOne: "fotografie selectată",
+      selectedMany: "fotografii selectate",
+      remove: "Elimină fotografia",
+    },
+    tr: {
+      accountHint: "En fazla 8 fotoğraf ekleyebilirsin. JPG, PNG veya WebP, her biri en fazla 4MB.",
+      itemHint: "1 görsel ekle. JPG, PNG veya WebP, en fazla 4MB.",
+      selectedOne: "fotoğraf seçildi",
+      selectedMany: "fotoğraf seçildi",
+      remove: "Fotoğrafı kaldır",
+    },
+  }[lang];
+
   const fetchListings = useCallback(async () => {
     setIsLoadingListings(true);
     const response = await fetch("/api/listings");
@@ -2410,9 +2455,16 @@ const text = {
 
                 {(sale.type === "Item" || sale.type === "Conta") && (
                   <div>
-                    <p className="mb-2 text-sm text-neutral-400">
-                      {text.imageRequired}
-                    </p>
+                    <div className="mb-3">
+                      <p className="text-sm font-semibold text-white">
+                        {text.imageRequired}
+                      </p>
+                      <p className="mt-1 text-xs text-neutral-400">
+                        {sale.type === "Conta"
+                          ? uploadCopy.accountHint
+                          : uploadCopy.itemHint}
+                      </p>
+                    </div>
                     <input
                       id="sale-image"
                       ref={fileInputRef}
@@ -2420,12 +2472,12 @@ const text = {
                       accept="image/jpeg,image/png,image/webp"
                       multiple={sale.type === "Conta"}
                       onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
+                        const selectedFiles = Array.from(e.target.files || []);
                         const maxFiles = sale.type === "Conta" ? 8 : 1;
 
                         if (
-                          files.length > maxFiles ||
-                          files.some(
+                          selectedFiles.length > maxFiles ||
+                          selectedFiles.some(
                             (file) =>
                               !allowedImageTypes.includes(file.type) ||
                               file.size > maxImageSizeBytes
@@ -2433,27 +2485,91 @@ const text = {
                         ) {
                           toast.error(text.invalidImage);
                           e.target.value = "";
-                          setImageFiles([]);
                           return;
                         }
 
-                        setImageFiles(files);
+                        setImageFiles((current) => {
+                          const nextFiles =
+                            sale.type === "Conta"
+                              ? [...current, ...selectedFiles]
+                              : selectedFiles;
+                          const uniqueFiles = nextFiles.filter(
+                            (file, index, files) =>
+                              files.findIndex(
+                                (candidate) =>
+                                  candidate.name === file.name &&
+                                  candidate.size === file.size &&
+                                  candidate.lastModified === file.lastModified
+                              ) === index
+                          );
+
+                          if (uniqueFiles.length > maxFiles) {
+                            toast.error(text.invalidImage);
+                            return current;
+                          }
+
+                          return uniqueFiles;
+                        });
+                        e.target.value = "";
                       }}
                       className="sr-only"
                     />
                     <label
                       htmlFor="sale-image"
-                      className="flex cursor-pointer flex-col gap-1 rounded-xl border border-dashed border-white/15 bg-neutral-950/90 px-4 py-3 text-sm outline-none hover:border-emerald-300/45 hover:bg-neutral-900 focus-within:border-emerald-300/60"
+                      className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-dashed border-white/15 bg-neutral-950/90 px-4 py-4 text-sm outline-none transition hover:border-emerald-300/45 hover:bg-neutral-900 focus-within:border-emerald-300/60"
                     >
-                      <span className="font-semibold text-white">
-                        {text.chooseImage}
+                      <span>
+                        <span className="block font-semibold text-white">
+                          {text.chooseImage}
+                        </span>
+                        <span className="mt-1 block text-xs text-neutral-500">
+                          {imageFiles.length > 0
+                            ? `${imageFiles.length} ${
+                                imageFiles.length === 1
+                                  ? uploadCopy.selectedOne
+                                  : uploadCopy.selectedMany
+                              }`
+                            : text.noFileSelected}
+                        </span>
                       </span>
-                      <span className="truncate text-neutral-400">
-                        {imageFiles.length > 0
-                          ? imageFiles.map((file) => file.name).join(", ")
-                          : text.noFileSelected}
+                      <span className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-xs font-bold text-emerald-200">
+                        {imageFiles.length}/{sale.type === "Conta" ? 8 : 1}
                       </span>
                     </label>
+                    {imageFiles.length > 0 && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {imageFiles.map((file, index) => (
+                          <div
+                            key={`${file.name}-${file.lastModified}-${index}`}
+                            className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-white/10 bg-neutral-950/70 px-3 py-2 text-xs"
+                          >
+                            <span className="min-w-0">
+                              <span className="block font-semibold text-white">
+                                Foto {index + 1}
+                              </span>
+                              <span className="block truncate text-neutral-500">
+                                {file.name}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setImageFiles((current) =>
+                                  current.filter((_, fileIndex) => fileIndex !== index)
+                                );
+                                if (fileInputRef.current) {
+                                  fileInputRef.current.value = "";
+                                }
+                              }}
+                              className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/10 text-neutral-400 transition hover:border-red-300/40 hover:bg-red-500/10 hover:text-red-200"
+                              aria-label={uploadCopy.remove}
+                            >
+                              x
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
