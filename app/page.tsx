@@ -17,6 +17,7 @@ type Listing = {
   price: string;
   status: string | null;
   image_url: string | null;
+  image_urls?: string[] | null;
   created_at?: string | null;
   group_listing_ids?: string[];
 };
@@ -140,6 +141,15 @@ function parseListingPrice(value: string | number | null | undefined) {
   );
 
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getListingImages(listing: Listing) {
+  const images = [
+    ...(Array.isArray(listing.image_urls) ? listing.image_urls : []),
+    listing.image_url,
+  ].filter(Boolean) as string[];
+
+  return Array.from(new Set(images));
 }
 
 function ContactHint({
@@ -432,7 +442,10 @@ export default function Home() {
   const [reportContact, setReportContact] = useState("");
 
   const [openedImage, setOpenedImage] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [listingImageIndexes, setListingImageIndexes] = useState<
+    Record<string, number>
+  >({});
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isSubmittingSale, setIsSubmittingSale] = useState(false);
   const [isSendingInterest, setIsSendingInterest] = useState(false);
@@ -1438,16 +1451,17 @@ const text = {
       return;
     }
 
-    if ((sale.type === "Item" || sale.type === "Conta") && !imageFile) {
+    if ((sale.type === "Item" || sale.type === "Conta") && imageFiles.length === 0) {
       toast.error(text.imageMissing);
       return;
     }
 
-    if (
-      imageFile &&
-      (!allowedImageTypes.includes(imageFile.type) ||
-        imageFile.size > maxImageSizeBytes)
-    ) {
+    if (imageFiles.length > (sale.type === "Conta" ? 8 : 1)) {
+      toast.error(text.invalidImage);
+      return;
+    }
+
+    if (imageFiles.some((file) => !allowedImageTypes.includes(file.type) || file.size > maxImageSizeBytes)) {
       toast.error(text.invalidImage);
       return;
     }
@@ -1468,8 +1482,12 @@ const text = {
     formData.append("seller_contact_method", sale.seller_contact_method);
     formData.append("seller_contact", cleanedSale.seller_contact);
 
-    if (imageFile) {
-      formData.append("image", imageFile);
+    imageFiles.forEach((file) => {
+      formData.append("images", file);
+    });
+
+    if (imageFiles[0]) {
+      formData.append("image", imageFiles[0]);
     }
 
     const response = await fetch("/api/sale-submissions", {
@@ -1504,7 +1522,7 @@ const text = {
       seller_contact: "",
     });
 
-    setImageFile(null);
+    setImageFiles([]);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -2007,14 +2025,23 @@ const text = {
 >
   {item.type !== "Wons" ? (
     <div className="relative h-48 w-full overflow-hidden bg-neutral-800">
-      {item.image_url ? (
+      {getListingImages(item).length > 0 ? (
         <button
           type="button"
-          onClick={() => setOpenedImage(item.image_url)}
+          onClick={() =>
+            setOpenedImage(
+              getListingImages(item)[
+                listingImageIndexes[item.id] || 0
+              ] || getListingImages(item)[0]
+            )
+          }
           className="h-full w-full cursor-zoom-in"
         >
           <img
-            src={item.image_url}
+            src={
+              getListingImages(item)[listingImageIndexes[item.id] || 0] ||
+              getListingImages(item)[0]
+            }
             alt={item.title}
             className="pointer-events-none h-full w-full object-cover transition group-hover:scale-105"
           />
@@ -2023,6 +2050,44 @@ const text = {
         <div className="flex h-full items-center justify-center text-sm text-neutral-500">
           {text.noImage}
         </div>
+      )}
+
+      {getListingImages(item).length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              setListingImageIndexes((current) => ({
+                ...current,
+                [item.id]:
+                  ((current[item.id] || 0) - 1 + getListingImages(item).length) %
+                  getListingImages(item).length,
+              }))
+            }
+            className="absolute left-3 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/70 text-lg font-black text-white hover:bg-black"
+            aria-label="Previous image"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setListingImageIndexes((current) => ({
+                ...current,
+                [item.id]:
+                  ((current[item.id] || 0) + 1) % getListingImages(item).length,
+              }))
+            }
+            className="absolute right-3 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/70 text-lg font-black text-white hover:bg-black"
+            aria-label="Next image"
+          >
+            ›
+          </button>
+          <div className="absolute bottom-3 left-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-white -translate-x-1/2">
+            {(listingImageIndexes[item.id] || 0) + 1}/
+            {getListingImages(item).length}
+          </div>
+        </>
       )}
 
       <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/70 px-3 py-1 text-xs backdrop-blur">
@@ -2187,7 +2252,7 @@ const text = {
                         item_category: nextType === "Item" ? sale.item_category : "",
                         seller_expected_price: getInitialPriceForType(nextType),
                       });
-                      setImageFile(null);
+                      setImageFiles([]);
 
                       if (fileInputRef.current) {
                         fileInputRef.current.value = "";
@@ -2353,21 +2418,26 @@ const text = {
                       ref={fileInputRef}
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
+                      multiple={sale.type === "Conta"}
                       onChange={(e) => {
-                        const file = e.target.files?.[0] || null;
+                        const files = Array.from(e.target.files || []);
+                        const maxFiles = sale.type === "Conta" ? 8 : 1;
 
                         if (
-                          file &&
-                          (!allowedImageTypes.includes(file.type) ||
-                            file.size > maxImageSizeBytes)
+                          files.length > maxFiles ||
+                          files.some(
+                            (file) =>
+                              !allowedImageTypes.includes(file.type) ||
+                              file.size > maxImageSizeBytes
+                          )
                         ) {
                           toast.error(text.invalidImage);
                           e.target.value = "";
-                          setImageFile(null);
+                          setImageFiles([]);
                           return;
                         }
 
-                        setImageFile(file);
+                        setImageFiles(files);
                       }}
                       className="sr-only"
                     />
@@ -2379,7 +2449,9 @@ const text = {
                         {text.chooseImage}
                       </span>
                       <span className="truncate text-neutral-400">
-                        {imageFile?.name || text.noFileSelected}
+                        {imageFiles.length > 0
+                          ? imageFiles.map((file) => file.name).join(", ")
+                          : text.noFileSelected}
                       </span>
                     </label>
                   </div>

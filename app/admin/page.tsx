@@ -34,6 +34,7 @@ type SaleSubmission = {
   seller_expected_price: string | null;
   seller_contact: string | null;
   image_url: string | null;
+  image_urls?: string[] | null;
 };
 
 type Listing = {
@@ -47,6 +48,7 @@ type Listing = {
   profit?: number | null;
   status: string | null;
   image_url: string | null;
+  image_urls?: string[] | null;
   seller_contact: string | null;
   is_active: boolean;
 };
@@ -262,6 +264,10 @@ export default function Admin() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [adminTab, setAdminTab] = useState("sales");
   const [adminPage, setAdminPage] = useState(1);
+  const [listingSearch, setListingSearch] = useState("");
+  const [listingServerFilter, setListingServerFilter] = useState("All");
+  const [listingTypeFilter, setListingTypeFilter] = useState("All");
+  const [listingStatusFilter, setListingStatusFilter] = useState("All");
   const isAllowedAdmin =
     session?.user.email?.toLowerCase() === allowedAdminEmail.toLowerCase();
 
@@ -1006,6 +1012,25 @@ export default function Admin() {
     return status !== "sold" && status !== "cancelled" && req.listings?.id;
   });
   const activeMatches = matchedBuyOrders.length + openRequestMatches.length;
+  const filteredListings = listings.filter((item) => {
+    const search = listingSearch.trim().toLowerCase();
+    const matchesSearch =
+      !search ||
+      item.title.toLowerCase().includes(search) ||
+      item.price.toLowerCase().includes(search) ||
+      item.seller_contact?.toLowerCase().includes(search);
+    const matchesServer =
+      listingServerFilter === "All" || item.server === listingServerFilter;
+    const matchesType =
+      listingTypeFilter === "All" || item.type === listingTypeFilter;
+    const matchesStatus =
+      listingStatusFilter === "All" ||
+      (listingStatusFilter === "Active" && item.is_active) ||
+      (listingStatusFilter === "Inactive" && !item.is_active) ||
+      item.status?.toLowerCase() === listingStatusFilter.toLowerCase();
+
+    return matchesSearch && matchesServer && matchesType && matchesStatus;
+  });
   const pagedSaleRecords = getPageItems(saleRecords, adminPage);
   const pagedBuyOrders = getPageItems(buyOrders, adminPage);
   const pagedMatchedBuyOrders = getPageItems(matchedBuyOrders, adminPage);
@@ -1013,7 +1038,7 @@ export default function Admin() {
   const pagedRequests = getPageItems(requests, adminPage);
   const pagedReports = getPageItems(reports, adminPage);
   const pagedSubmissions = getPageItems(submissions, adminPage);
-  const pagedListings = getPageItems(listings, adminPage);
+  const pagedListings = getPageItems(filteredListings, adminPage);
   const currentAdminTotal =
     adminTab === "sales"
       ? saleRecords.length
@@ -1027,7 +1052,7 @@ export default function Admin() {
               ? reports.length
               : adminTab === "submissions"
                 ? submissions.length
-                : listings.length;
+                : filteredListings.length;
   const currentAdminPages = Math.max(
     1,
     Math.ceil(currentAdminTotal / adminPageSize)
@@ -2371,12 +2396,71 @@ export default function Admin() {
             description="Manage approved, active, sold or inactive listings."
           />
 
+          <div className="mb-5 grid gap-3 rounded-2xl border border-white/10 bg-neutral-900/80 p-4 md:grid-cols-4">
+            <input
+              value={listingSearch}
+              onChange={(e) => {
+                setListingSearch(e.target.value);
+                setAdminPage(1);
+              }}
+              placeholder="Search title, price or contact"
+              className="rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none"
+            />
+
+            <select
+              value={listingServerFilter}
+              onChange={(e) => {
+                setListingServerFilter(e.target.value);
+                setAdminPage(1);
+              }}
+              className="rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none"
+            >
+              <option value="All">All servers</option>
+              {servers.map((server) => (
+                <option key={server} value={server}>
+                  {formatServerLabel(server)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={listingTypeFilter}
+              onChange={(e) => {
+                setListingTypeFilter(e.target.value);
+                setAdminPage(1);
+              }}
+              className="rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none"
+            >
+              <option value="All">All types</option>
+              {types.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={listingStatusFilter}
+              onChange={(e) => {
+                setListingStatusFilter(e.target.value);
+                setAdminPage(1);
+              }}
+              className="rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 outline-none"
+            >
+              <option value="All">All status</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+              <option value="Available">Available</option>
+              <option value="Sold">Sold</option>
+            </select>
+          </div>
+
           {isFetching && listings.length === 0 ? (
             <LoadingGrid />
-          ) : listings.length === 0 ? (
+          ) : filteredListings.length === 0 ? (
             <Empty
-              title="No listings yet"
-              message="Approved submissions will become marketplace listings here."
+              title="No listings found"
+              message="Adjust the filters or clear the search to find listings faster."
             />
           ) : (
             <div className="grid gap-4">

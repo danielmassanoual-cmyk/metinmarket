@@ -12,6 +12,7 @@ type Listing = {
   profit?: number | null;
   status?: string | null;
   image_url?: string | null;
+  image_urls?: string[] | null;
   seller_contact?: string | null;
   is_active?: boolean | null;
 };
@@ -156,6 +157,7 @@ export async function POST(request: Request) {
         seller_expected_price: item.seller_expected_price,
         profit: 0,
         image_url: item.image_url,
+        image_urls: item.image_urls || (item.image_url ? [item.image_url] : []),
         seller_contact: item.seller_contact,
         status: "Available",
         is_active: true,

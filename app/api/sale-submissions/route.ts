@@ -49,8 +49,17 @@ export async function POST(request: Request) {
   );
   const sellerContactMethod = cleanText(formData.get("seller_contact_method"), 20);
   const sellerContact = cleanText(formData.get("seller_contact"), 50);
-  const image = formData.get("image");
-  const imageFile = image instanceof File ? image : null;
+  const images = formData
+    .getAll("images")
+    .filter((item): item is File => item instanceof File && item.size > 0);
+  const fallbackImage = formData.get("image");
+  const imageFiles =
+    images.length > 0
+      ? images
+      : fallbackImage instanceof File && fallbackImage.size > 0
+        ? [fallbackImage]
+        : [];
+  const maxImages = type === "Conta" ? 8 : 1;
 
   if (
     !title ||
@@ -78,19 +87,34 @@ export async function POST(request: Request) {
     );
   }
 
-  if ((type === "Item" || type === "Conta") && !imageFile) {
+  if ((type === "Item" || type === "Conta") && imageFiles.length === 0) {
     return Response.json({ error: "Image is required." }, { status: 400 });
   }
 
-  const imageError = validateImage(imageFile);
+  if (imageFiles.length > maxImages) {
+    return Response.json(
+      {
+        error:
+          type === "Conta"
+            ? "Accounts allow up to 8 images."
+            : "Only one image is allowed.",
+      },
+      { status: 400 }
+    );
+  }
 
-  if (imageError) {
-    return Response.json({ error: imageError }, { status: 400 });
+  for (const imageFile of imageFiles) {
+    const imageError = validateImage(imageFile);
+
+    if (imageError) {
+      return Response.json({ error: imageError }, { status: 400 });
+    }
   }
 
   let imageUrl: string | null = null;
+  const imageUrls: string[] = [];
 
-  if (imageFile && imageFile.size > 0) {
+  for (const imageFile of imageFiles) {
     const imageBytes = await imageFile.arrayBuffer();
     const signatureError = validateImageSignature(imageFile, imageBytes);
 
@@ -115,6 +139,7 @@ export async function POST(request: Request) {
       .getPublicUrl(filePath);
 
     imageUrl = data.publicUrl;
+    imageUrls.push(data.publicUrl);
   }
 
   const { error } = await supabaseAdmin.from("sale_submissions").insert({
@@ -127,6 +152,7 @@ export async function POST(request: Request) {
     }€`,
     seller_contact: formatContact(sellerContactMethod, sellerContact),
     image_url: imageUrl,
+    image_urls: imageUrls,
     status: "Pendente",
   });
 
