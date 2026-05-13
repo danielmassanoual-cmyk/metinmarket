@@ -2,17 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { StaticPageHeader } from "../static-page-header";
 
 type Lang = "en" | "es" | "pt" | "de" | "ro" | "tr";
-
-const languageOptions: Record<Lang, { flagClass: string; label: string }> = {
-  en: { flagClass: "flag-gb", label: "English" },
-  es: { flagClass: "flag-es", label: "Español" },
-  pt: { flagClass: "flag-pt", label: "Português" },
-  de: { flagClass: "flag-de", label: "Deutsch" },
-  ro: { flagClass: "flag-ro", label: "Română" },
-  tr: { flagClass: "flag-tr", label: "Türkçe" },
-};
 
 const content = {
   en: {
@@ -104,36 +96,7 @@ export default function Rules() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.14),transparent_32rem),linear-gradient(180deg,#070707,#050505)] text-white">
-      <header className="border-b border-white/10 bg-neutral-950/[0.84] backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-5 md:flex-row md:items-center md:justify-between">
-          <Link href="/" className="w-fit">
-            <h1 className="text-2xl font-black tracking-tight">Asrold Market</h1>
-            <p className="text-sm text-emerald-200/70">Metin2 Marketplace</p>
-          </Link>
-
-          <div className="flex items-center gap-2">
-            {(["en", "es", "pt", "de", "ro", "tr"] as Lang[]).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setLang(option)}
-                aria-label={languageOptions[option].label}
-                title={languageOptions[option].label}
-                className={`flex h-10 w-12 items-center justify-center rounded-lg border ${
-                  lang === option
-                    ? "border-white bg-white text-black shadow-lg shadow-white/10"
-                    : "border-white/10 bg-neutral-900/80 text-neutral-300 hover:border-white/25 hover:bg-neutral-800"
-                }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`language-flag ${languageOptions[option].flagClass}`}
-                />
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
+      <StaticPageHeader lang={lang} onLanguageChange={setLang} />
 
       <section className="mx-auto max-w-5xl px-5 py-12 md:py-16">
         <div className="rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(24,24,27,0.96),rgba(3,7,18,0.92)),radial-gradient(circle_at_85%_15%,rgba(16,185,129,0.18),transparent_18rem)] p-8 shadow-2xl shadow-black/30 md:p-10">

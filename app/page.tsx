@@ -1292,6 +1292,28 @@ const text = {
     fetchReservations();
   }, [fetchReservations]);
 
+  useEffect(() => {
+    function applyHashView() {
+      const hash = window.location.hash.replace("#", "");
+
+      if (hash === "sell" || hash === "buy") {
+        setView(hash);
+        setCurrentPage(1);
+        return;
+      }
+
+      if (hash === "" || hash === "market") {
+        setView("market");
+        setCurrentPage(1);
+      }
+    }
+
+    applyHashView();
+    window.addEventListener("hashchange", applyHashView);
+
+    return () => window.removeEventListener("hashchange", applyHashView);
+  }, []);
+
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
