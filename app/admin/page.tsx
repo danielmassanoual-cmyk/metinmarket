@@ -510,20 +510,22 @@ export default function Admin() {
     const soldQuantity = parseQuantity(
       matchQuantities[quantityKey] || order.desired
     );
+    const soldPrice = matchPrices[quantityKey] || formatPriceInput(listing.price);
+    const buyPrice =
+      matchBuyPrices[quantityKey] ||
+      formatPriceInput(listing.seller_expected_price);
 
     if (!soldQuantity || soldQuantity <= 0) {
       alert("Please enter a valid Wons quantity sold.");
       return;
     }
 
-    if (parseMoney(matchPrices[quantityKey] || listing.price) <= 0) {
+    if (parseMoney(soldPrice) <= 0) {
       alert("Please enter a valid sold price.");
       return;
     }
 
-    if (
-      parseMoney(matchBuyPrices[quantityKey] || listing.seller_expected_price) <= 0
-    ) {
+    if (parseMoney(buyPrice) <= 0) {
       alert("Please enter a valid buy price.");
       return;
     }
@@ -553,8 +555,8 @@ export default function Admin() {
         orderId: order.id,
         listingId: listing.id,
         quantity: soldQuantity,
-        soldPrice: matchPrices[quantityKey] || listing.price,
-        buyPrice: matchBuyPrices[quantityKey] || listing.seller_expected_price,
+        soldPrice,
+        buyPrice,
       });
     } catch (error) {
       setActionLoading(null);
@@ -614,9 +616,10 @@ export default function Admin() {
       (selectedSellerId &&
         sellerMatches.find((seller) => seller.id === selectedSellerId)) ||
       listing;
-    const soldPrice = matchPrices[quantityKey] || listing.price;
+    const soldPrice = matchPrices[quantityKey] || formatPriceInput(listing.price);
     const buyPrice =
-      matchBuyPrices[quantityKey] || selectedSeller.seller_expected_price;
+      matchBuyPrices[quantityKey] ||
+      formatPriceInput(selectedSeller.seller_expected_price);
     const requestedQuantity = parseQuantity(request.desired);
     const availableQuantity =
       listing.type === "Wons"
@@ -632,7 +635,7 @@ export default function Admin() {
       return;
     }
 
-    if (parseMoney(matchPrices[quantityKey] || listing.price) <= 0) {
+    if (parseMoney(soldPrice) <= 0) {
       alert("Please enter a valid sold price.");
       return;
     }

@@ -45,7 +45,7 @@ function cleanText(value: unknown, maxLength: number) {
 }
 
 function moneyValue(value: unknown) {
-  return cleanText(value, 12).replace(",", ".");
+  return cleanText(value, 12).replace(/[^\d,.-]/g, "").replace(",", ".");
 }
 
 function isValidMoney(value: string) {
