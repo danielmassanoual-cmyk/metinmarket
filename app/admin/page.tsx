@@ -1019,7 +1019,8 @@ export default function Admin() {
     return (
       status !== "sold" &&
       status !== "cancelled" &&
-      getBuyOrderMatchGroups(order).length > 0
+      (getBuyOrderMatches(order).length > 0 ||
+        getBuyOrderPartialMatches(order).length > 0)
     );
   });
   const openRequestMatches = requests.filter((req) => {
@@ -1078,7 +1079,7 @@ export default function Admin() {
     setAdminPage(1);
   }
 
-  function getBuyOrderMatchGroups(order: BuyOrder) {
+  function getBuyOrderCandidateListings(order: BuyOrder) {
     const isOpen =
       !order.status ||
       order.status.toLowerCase() === "open" ||
@@ -1090,37 +1091,6 @@ export default function Admin() {
     const requestedQuantity = parseQuantity(order.desired);
     const maxPrice = parseMoney(order.max_price);
     const orderServer = normalizeServerKey(order.server);
-
-    if (order.type === "Wons") {
-      const groupedWons = new Map<string, Listing>();
-
-      activeListings.forEach((listing) => {
-        const sameMarket =
-          normalizeServerKey(listing.server) === orderServer &&
-          listing.type === order.type;
-        const listingPrice = parseMoney(listing.price);
-        const priceMatch = !maxPrice || listingPrice <= maxPrice;
-
-        if (!sameMarket || !priceMatch) return;
-
-        const groupKey = `${normalizeServerKey(listing.server)}|${listing.price}`;
-        const current = groupedWons.get(groupKey);
-
-        if (!current) {
-          groupedWons.set(groupKey, { ...listing });
-          return;
-        }
-
-        current.title = String(
-          parseQuantity(current.title) + parseQuantity(listing.title)
-        );
-      });
-
-      return Array.from(groupedWons.values()).filter((listing) => {
-        const listingQuantity = parseQuantity(listing.title);
-        return requestedQuantity > 0 && listingQuantity >= requestedQuantity;
-      });
-    }
 
     return activeListings.filter((listing) => {
       const sameMarket =
@@ -1142,7 +1112,7 @@ export default function Admin() {
   }
 
   function getBuyOrderMatches(order: BuyOrder) {
-    return getBuyOrderMatchGroups(order).filter((listing) => {
+    return getBuyOrderCandidateListings(order).filter((listing) => {
       if (order.type !== "Wons") return true;
 
       return parseQuantity(listing.title) >= parseQuantity(order.desired);
@@ -1150,7 +1120,7 @@ export default function Admin() {
   }
 
   function getBuyOrderPartialMatches(order: BuyOrder) {
-    return getBuyOrderMatchGroups(order).filter((listing) => {
+    return getBuyOrderCandidateListings(order).filter((listing) => {
       if (order.type !== "Wons") return false;
 
       const quantity = parseQuantity(listing.title);
@@ -1527,9 +1497,8 @@ export default function Admin() {
 
                                     <div className="relative min-w-[8.5rem]">
                                       <input
-                                        type="number"
-                                        min="0.01"
-                                        step="0.01"
+                                        type="text"
+                                        inputMode="decimal"
                                         value={selectedPrice}
                                         onChange={(e) =>
                                           setMatchPrices({
@@ -1546,9 +1515,8 @@ export default function Admin() {
 
                                     <div className="relative min-w-[8.5rem]">
                                       <input
-                                        type="number"
-                                        min="0.01"
-                                        step="0.01"
+                                        type="text"
+                                        inputMode="decimal"
                                         value={selectedBuyPrice}
                                         onChange={(e) =>
                                           setMatchBuyPrices({
@@ -1786,9 +1754,8 @@ export default function Admin() {
 
                                     <div className="relative">
                                       <input
-                                        type="number"
-                                        min="0.01"
-                                        step="0.01"
+                                        type="text"
+                                        inputMode="decimal"
                                         value={selectedPrice}
                                         onChange={(e) =>
                                           setMatchPrices({
@@ -1805,9 +1772,8 @@ export default function Admin() {
 
                                     <div className="relative">
                                       <input
-                                        type="number"
-                                        min="0.01"
-                                        step="0.01"
+                                        type="text"
+                                        inputMode="decimal"
                                         value={selectedBuyPrice}
                                         onChange={(e) =>
                                           setMatchBuyPrices({
@@ -2019,9 +1985,8 @@ export default function Admin() {
 
                           <div className="relative min-w-[8.5rem]">
                             <input
-                              type="number"
-                              min="0.01"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               value={selectedPrice}
                               onChange={(e) =>
                                 setMatchPrices({
@@ -2038,9 +2003,8 @@ export default function Admin() {
 
                           <div className="relative min-w-[8.5rem]">
                             <input
-                              type="number"
-                              min="0.01"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               value={selectedBuyPrice}
                               onChange={(e) =>
                                 setMatchBuyPrices({
