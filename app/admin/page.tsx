@@ -192,6 +192,26 @@ function formatPriceInput(value: string | number | null | undefined) {
   return parsed ? parsed.toFixed(2) : "";
 }
 
+function getSaleMonthKey(value: string | null | undefined) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toISOString().slice(0, 7);
+}
+
+function formatMonthLabel(value: string) {
+  const [year, month] = value.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+
+  return new Intl.DateTimeFormat("en", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
 function parseQuantity(value: string | number | null | undefined) {
   if (typeof value === "number") return value;
   if (!value) return 0;
@@ -279,6 +299,7 @@ export default function Admin() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [adminTab, setAdminTab] = useState("sales");
   const [adminPage, setAdminPage] = useState(1);
+  const [saleMonthFilter, setSaleMonthFilter] = useState("All");
   const [listingSearch, setListingSearch] = useState("");
   const [listingServerFilter, setListingServerFilter] = useState("All");
   const [listingTypeFilter, setListingTypeFilter] = useState("All");
@@ -1008,15 +1029,20 @@ export default function Admin() {
 
   const activeListings = listings.filter((item) => item.is_active);
   const inactiveListings = listings.filter((item) => !item.is_active);
-  const totalProfit = saleRecords.reduce(
+  const saleMonthOptions = Array.from(
+    new Set(saleRecords.map((sale) => getSaleMonthKey(sale.created_at)).filter(Boolean))
+  ).sort((a, b) => b.localeCompare(a));
+  const filteredSaleRecords =
+    saleMonthFilter === "All"
+      ? saleRecords
+      : saleRecords.filter(
+          (sale) => getSaleMonthKey(sale.created_at) === saleMonthFilter
+        );
+  const totalProfit = filteredSaleRecords.reduce(
     (total, item) => total + parseMoney(item.profit),
     0
   );
-  const totalSales = saleRecords.length;
-  const totalWonsSold = saleRecords.reduce((total, sale) => {
-    const listing = listings.find((item) => item.id === sale.listing_id);
-    return listing?.type === "Wons" ? total + Number(sale.quantity || 0) : total;
-  }, 0);
+  const totalSales = filteredSaleRecords.length;
   const matchedBuyOrders = buyOrders.filter((order) => {
     const status = order.status?.toLowerCase();
     return (
@@ -1050,7 +1076,7 @@ export default function Admin() {
 
     return matchesSearch && matchesServer && matchesType && matchesStatus;
   });
-  const pagedSaleRecords = getPageItems(saleRecords, adminPage);
+  const pagedSaleRecords = getPageItems(filteredSaleRecords, adminPage);
   const pagedBuyOrders = getPageItems(buyOrders, adminPage);
   const pagedMatchedBuyOrders = getPageItems(matchedBuyOrders, adminPage);
   const pagedRequestMatches = getPageItems(openRequestMatches, adminPage);
@@ -1060,7 +1086,7 @@ export default function Admin() {
   const pagedListings = getPageItems(filteredListings, adminPage);
   const currentAdminTotal =
     adminTab === "sales"
-      ? saleRecords.length
+      ? filteredSaleRecords.length
       : adminTab === "buy"
         ? buyOrders.length
         : adminTab === "matches"
@@ -1242,10 +1268,38 @@ export default function Admin() {
           </div>
         </section>
 
-        <section className="mb-8 grid gap-4 md:grid-cols-3 xl:grid-cols-9">
+        <section className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase text-neutral-500">
+              Profit period
+            </p>
+            <p className="text-sm text-neutral-400">
+              {saleMonthFilter === "All"
+                ? "All completed sales"
+                : formatMonthLabel(saleMonthFilter)}
+            </p>
+          </div>
+
+          <select
+            value={saleMonthFilter}
+            onChange={(e) => {
+              setSaleMonthFilter(e.target.value);
+              setAdminPage(1);
+            }}
+            className="min-h-11 rounded-xl border border-white/10 bg-neutral-950 px-4 py-2 text-sm font-bold text-white outline-none focus:border-emerald-300/60"
+          >
+            <option value="All">All time</option>
+            {saleMonthOptions.map((month) => (
+              <option key={month} value={month}>
+                {formatMonthLabel(month)}
+              </option>
+            ))}
+          </select>
+        </section>
+
+        <section className="mb-8 grid gap-4 md:grid-cols-3 xl:grid-cols-8">
           <SummaryCard label="Completed sales" value={totalSales} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
           <SummaryCard label="Total profit" value={formatEuro(totalProfit)} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
-          <SummaryCard label="Wons sold" value={totalWonsSold} active={adminTab === "sales"} onClick={() => openAdminTab("sales")} />
           <SummaryCard label="Buy orders" value={buyOrders.length} active={adminTab === "buy"} onClick={() => openAdminTab("buy")} />
           <SummaryCard label="Matches" value={activeMatches} active={adminTab === "matches"} onClick={() => openAdminTab("matches")} />
           <SummaryCard label="Received requests" value={requests.length} active={adminTab === "requests"} onClick={() => openAdminTab("requests")} />
@@ -1263,7 +1317,7 @@ export default function Admin() {
 
           {isFetching && saleRecords.length === 0 ? (
             <LoadingGrid />
-          ) : saleRecords.length === 0 ? (
+          ) : filteredSaleRecords.length === 0 ? (
             <Empty
               title="No sales recorded"
               message="Confirmed buy order and buyer request sales will appear here."
@@ -2826,7 +2880,9 @@ function SummaryCard({
           : "border-white/10 bg-neutral-900/90 hover:border-white/25"
       }`}
     >
-      <p className="text-3xl font-black">{value}</p>
+      <p className="min-w-0 break-words text-2xl font-black leading-tight xl:text-3xl">
+        {value}
+      </p>
       <p className="text-sm text-neutral-400">{label}</p>
     </button>
   );
