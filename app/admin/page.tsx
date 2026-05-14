@@ -202,6 +202,17 @@ function getSaleMonthKey(value: string | null | undefined) {
   return date.toISOString().slice(0, 7);
 }
 
+function getMonthsUntilEndOfYear(fromDate = new Date()) {
+  const year = fromDate.getFullYear();
+  const currentMonth = fromDate.getMonth();
+
+  return Array.from({ length: 12 - currentMonth }, (_, index) => {
+    const month = currentMonth + index + 1;
+
+    return `${year}-${String(month).padStart(2, "0")}`;
+  });
+}
+
 function formatMonthLabel(value: string) {
   const [year, month] = value.split("-");
   const date = new Date(Number(year), Number(month) - 1, 1);
@@ -1030,7 +1041,12 @@ export default function Admin() {
   const activeListings = listings.filter((item) => item.is_active);
   const inactiveListings = listings.filter((item) => !item.is_active);
   const saleMonthOptions = Array.from(
-    new Set(saleRecords.map((sale) => getSaleMonthKey(sale.created_at)).filter(Boolean))
+    new Set([
+      ...getMonthsUntilEndOfYear(),
+      ...saleRecords
+        .map((sale) => getSaleMonthKey(sale.created_at))
+        .filter(Boolean),
+    ])
   ).sort((a, b) => b.localeCompare(a));
   const filteredSaleRecords =
     saleMonthFilter === "All"
